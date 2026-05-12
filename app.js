@@ -23,15 +23,17 @@ const t = {
     lookup: "예약조회",
     checkReservation: "예약 조회하기",
     posterKicker: "Festival Pub Benefit",
-    posterTitle: "ClubX 예약 혜택 이벤트",
+    posterTitle: "ClubX<br>예약 혜택 이벤트",
     posterBody: [
       "KUBA 대동제 주점에서는 현장 주류 판매가 불가능하여, 기본적으로 손님이 직접 주류를 구매해 오셔야 합니다.",
       "하지만 ClubX 앱을 통해 예약한 손님에게는 소주 또는 맥주를 무료로 증정합니다.",
       "테이블 전원이 ClubX를 통해 예약한 팀에게는 술을 시원하게 보관할 수 있는 아이스 버켓도 함께 제공합니다.",
     ],
-    notice: "주의사항: 현장 상황에 따라 소주 또는 맥주 중 일부 품목이 먼저 품절될 수 있습니다.",
+    notice:
+      "주의사항: 현장 상황에 따라 소주 또는 맥주 중 일부 품목이 먼저 품절될 수 있습니다.",
     startTitle: "예약 방법 선택",
-    startCopy: "혜택 없이 빠르게 예약하거나, ClubX 앱으로 예약하고 이벤트 혜택을 받을 수 있습니다.",
+    startCopy:
+      "혜택 없이 빠르게 예약하거나, ClubX 앱으로 예약하고 이벤트 혜택을 받을 수 있습니다.",
     guestCta: "혜택 받지 않고 비회원 예약",
     clubxCta: "ClubX로 예약하고 혜택 받기",
     clubxTitle: "ClubX 앱으로 예약하기",
@@ -41,7 +43,8 @@ const t = {
     androidNotice: "Android 버전은 현재 준비 중입니다.",
     backHome: "메인으로 돌아가기",
     guestTitle: "비회원 예약",
-    guestGuide: "ClubX 혜택 없이 예약하거나, 일부 일행만 ClubX로 예약한 혼합 그룹을 위한 신청 페이지입니다.",
+    guestGuide:
+      "ClubX 혜택 없이 예약하거나, 일부 일행만 ClubX로 예약한 혼합 그룹을 위한 신청 페이지입니다.",
     nonClubxSection: "비회원 인원",
     addGuest: "비회원 인원 추가",
     clubxQuestion: "ClubX를 통해 예약한 인원이 있나요?",
@@ -78,7 +81,8 @@ const t = {
       privacy: "개인정보 활용 동의가 필요합니다.",
     },
     lookupTitle: "예약조회",
-    lookupDesc: "예약 시 입력한 이름과 연락처로 예약 내용을 확인할 수 있습니다.",
+    lookupDesc:
+      "예약 시 입력한 이름과 연락처로 예약 내용을 확인할 수 있습니다.",
     lookupFail: "일치하는 예약 정보를 찾을 수 없습니다.",
     privacyTitle: "개인정보 활용 동의",
     backReservation: "예약 페이지로 돌아가기",
@@ -123,9 +127,11 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
       "However, guests who reserve through the ClubX app will receive free soju or beer.",
       "If every person at the table reserves through ClubX, the team will also receive an ice bucket to keep drinks cold.",
     ],
-    notice: "Notice: Depending on on-site availability, either soju or beer may run out first.",
+    notice:
+      "Notice: Depending on on-site availability, either soju or beer may run out first.",
     startTitle: "Choose Your Reservation Path",
-    startCopy: "Make a quick guest reservation without benefits, or reserve through ClubX to receive event benefits.",
+    startCopy:
+      "Make a quick guest reservation without benefits, or reserve through ClubX to receive event benefits.",
     guestCta: "Guest Reservation Without Benefits",
     clubxCta: "Reserve with ClubX & Get Benefits",
     clubxTitle: "Reserve through the ClubX App",
@@ -135,7 +141,8 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     androidNotice: "The Android version is currently in development.",
     backHome: "Back to Home",
     guestTitle: "Guest Reservation",
-    guestGuide: "This page is for Non-ClubX guests and mixed groups where only some guests reserved through ClubX.",
+    guestGuide:
+      "This page is for Non-ClubX guests and mixed groups where only some guests reserved through ClubX.",
     nonClubxSection: "Non-ClubX Guests",
     addGuest: "Add Non-ClubX Guest",
     clubxQuestion: "Are there guests who reserved through ClubX?",
@@ -151,7 +158,8 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     selectedTime: "Selected Time",
     noTime: "No time selected.",
     privacyView: "View Privacy Consent Terms",
-    privacyAgree: "I agree to the use of my personal information for reservation confirmation and event operation.",
+    privacyAgree:
+      "I agree to the use of my personal information for reservation confirmation and event operation.",
     submit: "Submit Reservation",
     confirmTitle: "Please Confirm Your Reservation",
     cancel: "Cancel",
@@ -205,7 +213,20 @@ Collected personal information will not be used for purposes other than operatin
   },
 };
 
-const timeSlots = ["18:00", "18:30", "19:00", "19:30", "20:00", "20:30", "21:00", "21:30", "22:00", "22:30", "23:00", "23:30"];
+const timeSlots = [
+  "18:00",
+  "18:30",
+  "19:00",
+  "19:30",
+  "20:00",
+  "20:30",
+  "21:00",
+  "21:30",
+  "22:00",
+  "22:30",
+  "23:00",
+  "23:30",
+];
 
 function initReservation() {
   appState.reservation = {
@@ -280,7 +301,9 @@ function saveReservation(reservation) {
 
 function timeRange(slots) {
   if (!slots.length) return messages().noTime;
-  const indexes = slots.map((slot) => timeSlots.indexOf(slot)).sort((a, b) => a - b);
+  const indexes = slots
+    .map((slot) => timeSlots.indexOf(slot))
+    .sort((a, b) => a - b);
   const start = timeSlots[indexes[0]];
   const last = timeSlots[indexes[indexes.length - 1]];
   const [hour, minute] = last.split(":").map(Number);
@@ -295,14 +318,19 @@ function validateReservation() {
   const errors = {};
 
   r.guests.forEach((guest) => {
-    if (!validateName(guest.name)) errors[`name-${guest.id}`] = m.validation.name;
-    if (!validatePhone(guest.phone)) errors[`phone-${guest.id}`] = m.validation.phone;
+    if (!validateName(guest.name))
+      errors[`name-${guest.id}`] = m.validation.name;
+    if (!validatePhone(guest.phone))
+      errors[`phone-${guest.id}`] = m.validation.phone;
   });
 
   r.clubxGuests.forEach((guest) => {
-    if (!validateName(guest.name)) errors[`name-${guest.id}`] = m.validation.name;
-    if (!validatePhone(guest.phone)) errors[`phone-${guest.id}`] = m.validation.phone;
-    if (!validateUsername(guest.clubxUsername)) errors[`username-${guest.id}`] = m.validation.username;
+    if (!validateName(guest.name))
+      errors[`name-${guest.id}`] = m.validation.name;
+    if (!validatePhone(guest.phone))
+      errors[`phone-${guest.id}`] = m.validation.phone;
+    if (!validateUsername(guest.clubxUsername))
+      errors[`username-${guest.id}`] = m.validation.username;
   });
 
   const total = r.guests.length + r.clubxGuests.length;
@@ -319,7 +347,9 @@ function createFinalReservation() {
   const r = appState.reservation;
   return {
     id: `KUBA-${Date.now().toString(36).toUpperCase()}`,
-    submittedAt: new Date().toLocaleString(appState.lang === "ko" ? "ko-KR" : "en-US"),
+    submittedAt: new Date().toLocaleString(
+      appState.lang === "ko" ? "ko-KR" : "en-US",
+    ),
     guests: copy(r.guests),
     hasClubXGuests: r.hasClubXGuests,
     clubxGuests: copy(r.clubxGuests),
@@ -332,10 +362,20 @@ function createFinalReservation() {
 function summaryHtml(reservation) {
   const m = messages();
   const guestRows = reservation.guests.length
-    ? reservation.guests.map((g) => `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))}</li>`).join("")
+    ? reservation.guests
+        .map(
+          (g) =>
+            `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))}</li>`,
+        )
+        .join("")
     : `<li>${m.noGuests}</li>`;
   const clubxRows = reservation.clubxGuests.length
-    ? reservation.clubxGuests.map((g) => `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · ${escapeHtml(g.clubxUsername)}</li>`).join("")
+    ? reservation.clubxGuests
+        .map(
+          (g) =>
+            `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · ${escapeHtml(g.clubxUsername)}</li>`,
+        )
+        .join("")
     : `<li>${m.noGuests}</li>`;
 
   return `
@@ -351,7 +391,17 @@ function summaryHtml(reservation) {
 }
 
 function escapeHtml(value) {
-  return String(value).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#039;" })[char]);
+  return String(value).replace(
+    /[&<>"']/g,
+    (char) =>
+      ({
+        "&": "&amp;",
+        "<": "&lt;",
+        ">": "&gt;",
+        '"': "&quot;",
+        "'": "&#039;",
+      })[char],
+  );
 }
 
 function layout(content) {
@@ -400,12 +450,8 @@ function homePage() {
         </div>
         <div>
           <div class="cta-grid">
-            <a class="button primary" href="/guest-reservation" data-link>${m.guestCta}</a>
-            <a class="button dark" href="/clubx" data-link>${m.clubxCta}</a>
-          </div>
-          <div class="secondary-actions">
-            <a class="ghost-button nav-link" href="/faq" data-link>${m.faq}</a>
-            <a class="ghost-button nav-link" href="/reservation-lookup" data-link>${m.lookup}</a>
+            <a class="button dark" href="/guest-reservation" data-link>${m.guestCta}</a>
+            <a class="button primary" href="/clubx" data-link>${m.clubxCta}</a>
           </div>
         </div>
       </aside>
@@ -470,7 +516,9 @@ function guestReservationPage() {
           <input type="checkbox" data-has-clubx ${r.hasClubXGuests ? "checked" : ""}>
           <span>${m.clubxQuestion}</span>
         </label>
-        ${r.hasClubXGuests ? `
+        ${
+          r.hasClubXGuests
+            ? `
           <div class="section-head" style="margin-top:18px">
             <h2>${m.clubxSection}</h2>
             <button class="button small dark" data-add-clubx>${m.addClubx}</button>
@@ -478,7 +526,9 @@ function guestReservationPage() {
           <div class="guest-list">
             ${r.clubxGuests.length ? r.clubxGuests.map((guest) => guestCard(guest, true)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
           </div>
-        ` : ""}
+        `
+            : ""
+        }
       </section>
 
       <section class="panel">
@@ -534,12 +584,16 @@ function timeSlotGrid() {
   return `
     <div class="time-grid-wrap">
       <div class="time-grid" role="group" aria-label="${messages().timeTitle}">
-        ${timeSlots.map((slot) => `
+        ${timeSlots
+          .map(
+            (slot) => `
           <button class="slot-button ${selected.includes(slot) ? "selected" : ""}" data-slot="${slot}">
             <span>${slot}</span>
             <span class="slot-bar"></span>
           </button>
-        `).join("")}
+        `,
+          )
+          .join("")}
       </div>
     </div>
   `;
@@ -628,7 +682,9 @@ function render() {
     "/privacy-terms": termsPage,
     "/faq": faqPage,
   };
-  document.getElementById("app").innerHTML = (routes[appState.route] || homePage)();
+  document.getElementById("app").innerHTML = (
+    routes[appState.route] || homePage
+  )();
   bindEvents();
 }
 
@@ -665,26 +721,39 @@ function bindReservationEvents() {
     render();
   });
 
-  document.querySelector("[data-has-clubx]")?.addEventListener("change", (event) => {
-    r.hasClubXGuests = event.target.checked;
-    if (r.hasClubXGuests && !r.clubxGuests.length) r.clubxGuests.push(emptyClubXGuest());
-    if (!r.hasClubXGuests) r.clubxGuests = [];
-    render();
-  });
+  document
+    .querySelector("[data-has-clubx]")
+    ?.addEventListener("change", (event) => {
+      r.hasClubXGuests = event.target.checked;
+      if (r.hasClubXGuests && !r.clubxGuests.length)
+        r.clubxGuests.push(emptyClubXGuest());
+      if (!r.hasClubXGuests) r.clubxGuests = [];
+      render();
+    });
 
-  document.querySelector("[data-privacy]")?.addEventListener("change", (event) => {
-    r.privacyConsent = event.target.checked;
-    delete r.errors.privacy;
-    render();
-  });
+  document
+    .querySelector("[data-privacy]")
+    ?.addEventListener("change", (event) => {
+      r.privacyConsent = event.target.checked;
+      delete r.errors.privacy;
+      render();
+    });
 
   document.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", (event) => {
-      const guest = [...r.guests, ...r.clubxGuests].find((item) => item.id === input.dataset.id);
+      const guest = [...r.guests, ...r.clubxGuests].find(
+        (item) => item.id === input.dataset.id,
+      );
       if (!guest) return;
-      const value = input.dataset.field === "phone" ? formatPhone(event.target.value) : event.target.value;
+      const value =
+        input.dataset.field === "phone"
+          ? formatPhone(event.target.value)
+          : event.target.value;
       if (input.dataset.field === "phone") event.target.value = value;
-      const key = input.dataset.field === "username" ? "clubxUsername" : input.dataset.field;
+      const key =
+        input.dataset.field === "username"
+          ? "clubxUsername"
+          : input.dataset.field;
       guest[key] = value;
       delete r.errors[`${input.dataset.field}-${guest.id}`];
     });
@@ -693,9 +762,13 @@ function bindReservationEvents() {
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => {
       if (button.dataset.type === "clubx") {
-        r.clubxGuests = r.clubxGuests.filter((guest) => guest.id !== button.dataset.delete);
+        r.clubxGuests = r.clubxGuests.filter(
+          (guest) => guest.id !== button.dataset.delete,
+        );
       } else {
-        r.guests = r.guests.filter((guest) => guest.id !== button.dataset.delete);
+        r.guests = r.guests.filter(
+          (guest) => guest.id !== button.dataset.delete,
+        );
       }
       render();
     });
@@ -712,10 +785,12 @@ function bindReservationEvents() {
     render();
   });
 
-  document.querySelector("[data-close-modal]")?.addEventListener("click", () => {
-    appState.modalOpen = false;
-    render();
-  });
+  document
+    .querySelector("[data-close-modal]")
+    ?.addEventListener("click", () => {
+      appState.modalOpen = false;
+      render();
+    });
 
   document.querySelector("[data-confirm]")?.addEventListener("click", () => {
     const finalReservation = createFinalReservation();
@@ -730,7 +805,9 @@ function bindReservationEvents() {
 function selectSlot(slot) {
   const r = appState.reservation;
   const clicked = timeSlots.indexOf(slot);
-  const selectedIndexes = r.selectedTimeSlots.map((item) => timeSlots.indexOf(item)).sort((a, b) => a - b);
+  const selectedIndexes = r.selectedTimeSlots
+    .map((item) => timeSlots.indexOf(item))
+    .sort((a, b) => a - b);
 
   if (!selectedIndexes.length || selectedIndexes.includes(clicked)) {
     r.selectedTimeSlots = selectedIndexes.includes(clicked) ? [] : [slot];
@@ -740,7 +817,8 @@ function selectSlot(slot) {
     r.selectedTimeSlots = timeSlots.slice(min, max + 1);
   }
 
-  if (r.selectedTimeSlots.length > 4) r.selectedTimeSlots = r.selectedTimeSlots.slice(0, 4);
+  if (r.selectedTimeSlots.length > 4)
+    r.selectedTimeSlots = r.selectedTimeSlots.slice(0, 4);
   delete r.errors.time;
   render();
 }
@@ -766,7 +844,11 @@ function bindLookupEvents() {
     else {
       const normalized = normalizePhone(phone);
       appState.lookupResult = getSavedReservations().find((reservation) =>
-        [...reservation.guests, ...reservation.clubxGuests].some((guest) => guest.name.trim() === name && normalizePhone(guest.phone) === normalized)
+        [...reservation.guests, ...reservation.clubxGuests].some(
+          (guest) =>
+            guest.name.trim() === name &&
+            normalizePhone(guest.phone) === normalized,
+        ),
       );
       if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;
     }
