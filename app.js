@@ -12,7 +12,10 @@ const appState = {
 };
 
 const emptyGuest = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
-const emptyClubXGuest = () => ({ ...emptyGuest(), clubxUsername: "" });
+const emptyClubXGuest = () => ({
+  id: crypto.randomUUID(),
+  clubxUsername: "",
+});
 
 const t = {
   ko: {
@@ -82,7 +85,11 @@ const t = {
     },
     lookupTitle: "예약조회",
     lookupDesc:
-      "예약 시 입력한 이름과 연락처로 예약 내용을 확인할 수 있습니다.",
+      "비회원은 이름과 연락처로, ClubX 예약 인원은 ClubX Username으로 예약 내용을 확인할 수 있습니다.",
+    lookupGuestGroup: "비회원 예약 조회",
+    lookupClubxGroup: "ClubX 예약 조회",
+    lookupOr: "또는",
+    lookupUsername: "ClubX Username으로 조회",
     lookupFail: "일치하는 예약 정보를 찾을 수 없습니다.",
     privacyTitle: "개인정보 활용 동의",
     backReservation: "예약 페이지로 돌아가기",
@@ -111,7 +118,7 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
 수집된 개인정보는 KUBA 대동제 주점 예약 운영 목적 외에는 사용하지 않습니다.`,
     faqTitle: "FAQ",
     faqQ: "Q. 일행 중 일부만 ClubX를 통해 예약하고 싶으면 어떻게 하나요?",
-    faqA: "A. ClubX 사용자들끼리만 친구 태그를 통해 예약한 후, 비회원 예약 페이지에서 `ClubX를 통해 예약한 일행이 있나요?`에 예를 체크하고 이름, 연락처, ClubX Username을 기재해주시면 됩니다.",
+    faqA: "A. ClubX 사용자들끼리만 친구 태그를 통해 예약한 후, 비회원 예약 페이지에서 `ClubX를 통해 예약한 일행이 있나요?`에 예를 체크하고 ClubX Username을 기재해주시면 됩니다.",
   },
   en: {
     brand: "KUBA Festival Pub",
@@ -181,7 +188,12 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
       privacy: "Privacy consent is required.",
     },
     lookupTitle: "Check Reservation",
-    lookupDesc: "Enter the name and phone number used for the reservation.",
+    lookupDesc:
+      "Non-ClubX guests can search by name and phone number. ClubX guests can search by ClubX Username.",
+    lookupGuestGroup: "Guest Reservation Lookup",
+    lookupClubxGroup: "ClubX Reservation Lookup",
+    lookupOr: "OR",
+    lookupUsername: "Search by ClubX Username",
     lookupFail: "No matching reservation was found.",
     privacyTitle: "Privacy Consent",
     backReservation: "Back to Reservation",
@@ -210,7 +222,7 @@ You may refuse to provide consent. However, if you do not consent, reservation s
 Collected personal information will not be used for purposes other than operating the KUBA Festival Pub reservation system.`,
     faqTitle: "FAQ",
     faqQ: "Q. What should I do if only some members of my group want to reserve through ClubX?",
-    faqA: "A. ClubX users can reserve together by tagging each other as friends in the app. Then, on the guest reservation page, check `Are there guests who reserved through ClubX?` and enter their name, phone number, and ClubX Username.",
+    faqA: "A. ClubX users can reserve together by tagging each other as friends in the app. Then, on the guest reservation page, check `Are there guests who reserved through ClubX?` and enter their ClubX Username.",
   },
 };
 
@@ -335,10 +347,6 @@ function validateReservation() {
   });
 
   r.clubxGuests.forEach((guest) => {
-    if (!validateName(guest.name))
-      errors[`name-${guest.id}`] = m.validation.name;
-    if (!validatePhone(guest.phone))
-      errors[`phone-${guest.id}`] = m.validation.phone;
     if (!validateUsername(guest.clubxUsername))
       errors[`username-${guest.id}`] = m.validation.username;
   });
@@ -382,8 +390,13 @@ function summaryHtml(reservation) {
   const clubxRows = reservation.clubxGuests.length
     ? reservation.clubxGuests
         .map(
-          (g) =>
-            `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · ${escapeHtml(g.clubxUsername)}</li>`,
+          (g) => {
+            const legacyInfo =
+              g.name && g.phone
+                ? `${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · `
+                : "";
+            return `<li>${legacyInfo}${escapeHtml(g.clubxUsername)}</li>`;
+          },
         )
         .join("")
     : `<li>${m.noGuests}</li>`;
@@ -513,7 +526,7 @@ function guestReservationPage() {
       <section class="panel">
         <div class="section-head">
           <h2>${m.nonClubxSection}</h2>
-          <button class="button small primary" data-add-guest>${m.addGuest}</button>
+          <button class="button small dark" data-add-guest>${m.addGuest}</button>
         </div>
         <div class="guest-list">
           ${r.guests.length ? r.guests.map((guest) => guestCard(guest, false)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
@@ -531,7 +544,7 @@ function guestReservationPage() {
             ? `
           <div class="section-head" style="margin-top:18px">
             <h2>${m.clubxSection}</h2>
-            <button class="button small dark" data-add-clubx>${m.addClubx}</button>
+            <button class="button small primary" data-add-clubx>${m.addClubx}</button>
           </div>
           <div class="guest-list">
             ${r.clubxGuests.length ? r.clubxGuests.map((guest) => guestCard(guest, true)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
@@ -571,9 +584,20 @@ function guestCard(guest, isClubx) {
   const errors = appState.reservation.errors || {};
   return `
     <div class="guest-card ${isClubx ? "clubx" : ""}" data-card-id="${guest.id}">
-      ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
-      ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
-      ${isClubx ? fieldHtml(m.username, "username", guest.id, guest.clubxUsername, errors[`username-${guest.id}`]) : ""}
+      ${
+        isClubx
+          ? fieldHtml(
+              m.username,
+              "username",
+              guest.id,
+              guest.clubxUsername,
+              errors[`username-${guest.id}`],
+            )
+          : `
+              ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
+              ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
+            `
+      }
       <button class="button small" data-delete="${guest.id}" data-type="${isClubx ? "clubx" : "guest"}">${m.delete}</button>
     </div>
   `;
@@ -595,17 +619,15 @@ function timeSlotGrid() {
     <div class="time-grid-wrap">
       <div class="time-grid" role="group" aria-label="${messages().timeTitle}">
         ${timeSlots
-          .map(
-            (slot) => {
-              const end = slotEndTime(slot);
-              return `
+          .map((slot) => {
+            const end = slotEndTime(slot);
+            return `
           <button class="slot-button ${selected.includes(slot) ? "selected" : ""}" data-slot="${slot}" aria-label="${slot} - ${end}">
             <span class="slot-interval" aria-hidden="true">${slot} - ${end}</span>
             <span class="slot-bar"></span>
           </button>
         `;
-            },
-          )
+          })
           .join("")}
       </div>
     </div>
@@ -637,9 +659,19 @@ function lookupPage() {
         <span class="section-label">Lookup</span>
         <h1 class="page-title">${m.lookupTitle}</h1>
         <p class="muted">${m.lookupDesc}</p>
-        <div class="form-grid" style="margin-top:18px">
-          ${fieldPlain("lookup-name", m.name, appState.lookupName || "", "lookup-name")}
-          ${fieldPlain("lookup-phone", m.phone, appState.lookupPhone || "", "lookup-phone")}
+        <div class="lookup-form">
+          <div class="lookup-section">
+            <h2>${m.lookupGuestGroup}</h2>
+            <div class="form-grid lookup-guest-grid">
+              ${fieldPlain("lookup-name", m.name, appState.lookupName || "", "lookup-name")}
+              ${fieldPlain("lookup-phone", m.phone, appState.lookupPhone || "", "lookup-phone")}
+            </div>
+          </div>
+          <div class="lookup-divider"><span>${m.lookupOr}</span></div>
+          <div class="lookup-section">
+            <h2>${m.lookupClubxGroup}</h2>
+            ${fieldPlain("lookup-username", m.lookupUsername, appState.lookupUsername || "", "lookup-username")}
+          </div>
           <button class="button primary" data-lookup>${m.checkReservation}</button>
         </div>
         ${appState.lookupMessage ? `<p class="error">${appState.lookupMessage}</p>` : ""}
@@ -839,6 +871,7 @@ function selectSlot(slot) {
 function bindLookupEvents() {
   const nameInput = document.querySelector("[data-lookup-name]");
   const phoneInput = document.querySelector("[data-lookup-phone]");
+  const usernameInput = document.querySelector("[data-lookup-username]");
   nameInput?.addEventListener("input", (event) => {
     appState.lookupName = event.target.value;
   });
@@ -846,21 +879,42 @@ function bindLookupEvents() {
     event.target.value = formatPhone(event.target.value);
     appState.lookupPhone = event.target.value;
   });
+  usernameInput?.addEventListener("input", (event) => {
+    appState.lookupUsername = event.target.value;
+  });
   document.querySelector("[data-lookup]")?.addEventListener("click", () => {
     const m = messages();
     const name = (appState.lookupName || "").trim();
     const phone = formatPhone(appState.lookupPhone || "");
+    const username = (appState.lookupUsername || "").trim();
     appState.lookupResult = null;
     appState.lookupMessage = "";
-    if (!validateName(name)) appState.lookupMessage = m.validation.name;
-    else if (!validatePhone(phone)) appState.lookupMessage = m.validation.phone;
-    else {
+
+    if (username) {
+      if (!validateUsername(username)) {
+        appState.lookupMessage = m.validation.username;
+      } else {
+        const normalizedUsername = username.toLowerCase();
+        appState.lookupResult = getSavedReservations().find((reservation) =>
+          reservation.clubxGuests.some(
+            (guest) =>
+              guest.clubxUsername?.trim().toLowerCase() ===
+              normalizedUsername,
+          ),
+        );
+        if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;
+      }
+    } else if (!validateName(name)) {
+      appState.lookupMessage = m.validation.name;
+    } else if (!validatePhone(phone)) {
+      appState.lookupMessage = m.validation.phone;
+    } else {
       const normalized = normalizePhone(phone);
       appState.lookupResult = getSavedReservations().find((reservation) =>
         [...reservation.guests, ...reservation.clubxGuests].some(
           (guest) =>
-            guest.name.trim() === name &&
-            normalizePhone(guest.phone) === normalized,
+            guest.name?.trim() === name &&
+            normalizePhone(guest.phone || "") === normalized,
         ),
       );
       if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;

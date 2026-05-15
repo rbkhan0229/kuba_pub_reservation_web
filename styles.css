@@ -350,6 +350,45 @@ button:disabled {
   gap: 14px;
 }
 
+.lookup-form {
+  display: grid;
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.lookup-section {
+  display: grid;
+  gap: 12px;
+}
+
+.lookup-section h2 {
+  margin: 0;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.lookup-guest-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.lookup-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+
+.lookup-divider::before,
+.lookup-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
 .section-head {
   display: flex;
   align-items: center;
@@ -384,7 +423,13 @@ button:disabled {
 }
 
 .guest-card.clubx {
-  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.guest-card > .button {
+  align-self: start;
+  min-height: 46px;
+  margin-top: 23px;
 }
 
 .field {
@@ -598,6 +643,10 @@ button:disabled {
     grid-template-columns: 1fr;
   }
 
+  .lookup-guest-grid {
+    grid-template-columns: 1fr;
+  }
+
   .topbar,
   .top-actions,
   .page-header {
@@ -632,6 +681,10 @@ button:disabled {
 
   .button.small {
     width: 100%;
+  }
+
+  .guest-card > .button {
+    margin-top: 0;
   }
 }
 
