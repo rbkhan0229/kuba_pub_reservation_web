@@ -536,15 +536,20 @@ function fieldHtml(label, field, id, value, error) {
 
 function timeSlotGrid() {
   const selected = appState.reservation.selectedTimeSlots;
+  const unavailable = appState.reservation.unavailableTimeSlots || [];
   return `
     <div class="time-grid-wrap">
       <div class="time-grid" role="group" aria-label="${messages().timeTitle}">
-        ${timeSlots.map((slot) => `
-          <button class="slot-button ${selected.includes(slot) ? "selected" : ""}" data-slot="${slot}">
+        ${timeSlots.map((slot) => {
+          const isSelected = selected.includes(slot);
+          const isUnavailable = unavailable.includes(slot);
+          return `
+          <button class="slot-button ${isSelected ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${slot}" ${isUnavailable ? "disabled" : ""}>
             <span>${slot}</span>
             <span class="slot-bar"></span>
           </button>
-        `).join("")}
+        `;
+        }).join("")}
       </div>
     </div>
   `;
@@ -707,7 +712,10 @@ function bindReservationEvents() {
   });
 
   document.querySelectorAll("[data-slot]").forEach((button) => {
-    button.addEventListener("click", () => selectSlot(button.dataset.slot));
+    button.addEventListener("click", () => {
+      if (button.disabled) return;
+      selectSlot(button.dataset.slot);
+    });
   });
 
   document.querySelector("[data-submit]")?.addEventListener("click", () => {

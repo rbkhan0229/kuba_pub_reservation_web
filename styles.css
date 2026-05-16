@@ -448,7 +448,7 @@ button:disabled {
   border: 0;
   border-right: 1px solid var(--line);
   background: #fff;
-  color: var(--muted);
+  color: var(--ink);
   font-size: 13px;
   font-weight: 850;
 }
@@ -460,8 +460,9 @@ button:disabled {
 .slot-bar {
   height: 34px;
   margin: 0 6px;
+  border: 1px solid var(--line);
   border-radius: 3px;
-  background: #727272;
+  background: #fff;
 }
 
 .slot-button.selected {
@@ -469,7 +470,19 @@ button:disabled {
 }
 
 .slot-button.selected .slot-bar {
+  border-color: var(--green);
   background: var(--green);
+}
+
+.slot-button.unavailable {
+  background: #f1f1f1;
+  color: var(--muted);
+  cursor: not-allowed;
+}
+
+.slot-button.unavailable .slot-bar {
+  border-color: #d7d7d7;
+  background: #d7d7d7;
 }
 
 .slot-button:focus {
