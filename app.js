@@ -12,7 +12,7 @@ const appState = {
 };
 
 const emptyGuest = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
-const emptyClubXGuest = () => ({ ...emptyGuest(), clubxUsername: "" });
+const emptyClubXGuest = () => ({ id: crypto.randomUUID(), clubxUsername: "" });
 
 const t = {
   ko: {
@@ -41,19 +41,21 @@ const t = {
     androidNotice: "Android 버전은 현재 준비 중입니다.",
     backHome: "메인으로 돌아가기",
     guestTitle: "비회원 예약",
-    guestGuide: "ClubX 혜택 없이 예약하거나, 일부 일행만 ClubX로 예약한 혼합 그룹을 위한 신청 페이지입니다.",
+    guestGuide: "ClubX 예약자가 있는지 먼저 알려주신 뒤, ClubX 예약자 ID와 ClubX 예약자를 제외한 비회원 인원 정보를 입력해주세요.",
     nonClubxSection: "비회원 인원",
+    nonClubxGuide: "ClubX로 예약한 인원은 제외하고, 비회원 인원만 이름과 연락처를 입력해주세요.",
     addGuest: "비회원 인원 추가",
-    clubxQuestion: "ClubX를 통해 예약한 인원이 있나요?",
-    clubxSection: "ClubX 예약 인원",
-    addClubx: "ClubX 예약 인원 추가",
+    clubxQuestion: "ClubX 예약자가 있나요?",
+    clubxSection: "ClubX 예약자 ID",
+    clubxGuide: "ClubX 앱에서 이미 예약한 일행의 ID만 입력해주세요.",
+    addClubx: "ClubX 예약자 ID 추가",
     name: "이름",
     phone: "연락처",
-    username: "ClubX Username",
+    username: "ClubX ID",
     delete: "삭제",
     total: (n) => `총 인원: ${n}명`,
     timeTitle: "주점 이용시간 선택",
-    timeHelp: "30분 단위로 연속된 1시간부터 2시간까지 선택할 수 있습니다.",
+    timeHelp: "30분 단위로 연속된 1시간부터 1시간 30분까지 선택할 수 있습니다.",
     selectedTime: "선택 시간",
     noTime: "선택된 시간이 없습니다.",
     privacyView: "개인정보 활용 동의 약관보기",
@@ -66,15 +68,15 @@ const t = {
     reservationId: "예약 ID",
     submittedAt: "신청 완료 시간",
     nonClubxGuests: "비회원 인원 정보",
-    clubxGuests: "ClubX 예약 인원 정보",
+    clubxGuests: "ClubX 예약자 ID",
     noGuests: "입력된 인원이 없습니다.",
     validation: {
       name: "이름에는 숫자나 특수문자를 사용할 수 없습니다.",
       phone: "올바른 연락처 형식을 입력해주세요. 예: 010-1234-5678",
-      username: "ClubX Username을 입력해주세요.",
+      username: "ClubX ID를 입력해주세요.",
       oneGuest: "최소 1명 이상 입력해주세요.",
       timeShort: "이용시간은 최소 1시간 이상 선택해야 합니다.",
-      timeLong: "이용시간은 최대 2시간까지 선택할 수 있습니다.",
+      timeLong: "이용시간은 최대 1시간 30분까지 선택할 수 있습니다.",
       privacy: "개인정보 활용 동의가 필요합니다.",
     },
     lookupTitle: "예약조회",
@@ -89,7 +91,7 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
 1. 수집 항목
 - 이름
 - 연락처
-- ClubX Username: ClubX 예약 인원이 있는 경우에만 수집
+- ClubX ID: ClubX 예약자가 있는 경우에만 수집
 
 2. 수집 및 이용 목적
 - 예약자 본인 확인
@@ -107,7 +109,7 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
 수집된 개인정보는 KUBA 대동제 주점 예약 운영 목적 외에는 사용하지 않습니다.`,
     faqTitle: "FAQ",
     faqQ: "Q. 일행 중 일부만 ClubX를 통해 예약하고 싶으면 어떻게 하나요?",
-    faqA: "A. ClubX 사용자들끼리만 친구 태그를 통해 예약한 후, 비회원 예약 페이지에서 `ClubX를 통해 예약한 일행이 있나요?`에 예를 체크하고 이름, 연락처, ClubX Username을 기재해주시면 됩니다.",
+    faqA: "A. ClubX 사용자들끼리 먼저 앱에서 예약한 후, 이 페이지에서 `ClubX 예약자가 있나요?`에 체크하고 ClubX 예약자 ID를 입력해주세요. 이후 ClubX 예약자를 제외한 비회원 인원만 이름과 연락처를 적어주시면 됩니다.",
   },
   en: {
     brand: "KUBA Festival Pub",
@@ -135,19 +137,21 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     androidNotice: "The Android version is currently in development.",
     backHome: "Back to Home",
     guestTitle: "Guest Reservation",
-    guestGuide: "This page is for Non-ClubX guests and mixed groups where only some guests reserved through ClubX.",
+    guestGuide: "First tell us whether your group includes ClubX reservers, then enter their ClubX IDs and the non-ClubX guests only.",
     nonClubxSection: "Non-ClubX Guests",
+    nonClubxGuide: "Exclude anyone who reserved through ClubX. Enter names and phone numbers only for non-ClubX guests.",
     addGuest: "Add Non-ClubX Guest",
-    clubxQuestion: "Are there guests who reserved through ClubX?",
-    clubxSection: "ClubX Guests",
-    addClubx: "Add ClubX Guest",
+    clubxQuestion: "Are there ClubX reservers?",
+    clubxSection: "ClubX Reserver IDs",
+    clubxGuide: "Enter only the IDs of guests who have already reserved through the ClubX app.",
+    addClubx: "Add ClubX ID",
     name: "Name",
     phone: "Phone Number",
-    username: "ClubX Username",
+    username: "ClubX ID",
     delete: "Delete",
     total: (n) => `Total Guests: ${n}`,
     timeTitle: "Select Pub Time",
-    timeHelp: "Select continuous 30-minute blocks from 1 hour up to 2 hours.",
+    timeHelp: "Select continuous 30-minute blocks from 1 hour up to 1 hour 30 minutes.",
     selectedTime: "Selected Time",
     noTime: "No time selected.",
     privacyView: "View Privacy Consent Terms",
@@ -160,15 +164,15 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     reservationId: "Reservation ID",
     submittedAt: "Submitted At",
     nonClubxGuests: "Non-ClubX Guest Information",
-    clubxGuests: "ClubX Guest Information",
+    clubxGuests: "ClubX Reserver IDs",
     noGuests: "No guests entered.",
     validation: {
       name: "Name cannot contain numbers or special characters.",
       phone: "Please enter a valid phone number. Example: 010-1234-5678",
-      username: "Please enter a ClubX Username.",
+      username: "Please enter a ClubX ID.",
       oneGuest: "Please enter at least one guest.",
       timeShort: "Please select at least 1 hour.",
-      timeLong: "Please select up to 2 hours.",
+      timeLong: "Please select up to 1 hour 30 minutes.",
       privacy: "Privacy consent is required.",
     },
     lookupTitle: "Check Reservation",
@@ -183,7 +187,7 @@ For the operation of the KUBA Festival Pub reservation system, we collect and us
 1. Information Collected
 - Name
 - Phone number
-- ClubX Username: collected only if there are guests who reserved through ClubX
+- ClubX ID: collected only if there are guests who reserved through ClubX
 
 2. Purpose of Collection and Use
 - To verify the reservation holder
@@ -201,7 +205,7 @@ You may refuse to provide consent. However, if you do not consent, reservation s
 Collected personal information will not be used for purposes other than operating the KUBA Festival Pub reservation system.`,
     faqTitle: "FAQ",
     faqQ: "Q. What should I do if only some members of my group want to reserve through ClubX?",
-    faqA: "A. ClubX users can reserve together by tagging each other as friends in the app. Then, on the guest reservation page, check `Are there guests who reserved through ClubX?` and enter their name, phone number, and ClubX Username.",
+    faqA: "A. ClubX users should reserve together in the app first. Then check `Are there ClubX reservers?`, enter their ClubX IDs, and enter names and phone numbers only for non-ClubX guests.",
   },
 };
 
@@ -300,15 +304,13 @@ function validateReservation() {
   });
 
   r.clubxGuests.forEach((guest) => {
-    if (!validateName(guest.name)) errors[`name-${guest.id}`] = m.validation.name;
-    if (!validatePhone(guest.phone)) errors[`phone-${guest.id}`] = m.validation.phone;
     if (!validateUsername(guest.clubxUsername)) errors[`username-${guest.id}`] = m.validation.username;
   });
 
   const total = r.guests.length + r.clubxGuests.length;
   if (total < 1) errors.general = m.validation.oneGuest;
   if (r.selectedTimeSlots.length < 2) errors.time = m.validation.timeShort;
-  if (r.selectedTimeSlots.length > 4) errors.time = m.validation.timeLong;
+  if (r.selectedTimeSlots.length > 3) errors.time = m.validation.timeLong;
   if (!r.privacyConsent) errors.privacy = m.validation.privacy;
 
   r.errors = errors;
@@ -335,7 +337,7 @@ function summaryHtml(reservation) {
     ? reservation.guests.map((g) => `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))}</li>`).join("")
     : `<li>${m.noGuests}</li>`;
   const clubxRows = reservation.clubxGuests.length
-    ? reservation.clubxGuests.map((g) => `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · ${escapeHtml(g.clubxUsername)}</li>`).join("")
+    ? reservation.clubxGuests.map((g) => `<li>${escapeHtml(g.clubxUsername)}</li>`).join("")
     : `<li>${m.noGuests}</li>`;
 
   return `
@@ -455,17 +457,6 @@ function guestReservationPage() {
     <div class="content-grid">
       ${appState.submitted ? `<div class="toast">${m.complete}<br>${m.reservationId}: ${appState.submitted.id}</div>` : ""}
       <section class="panel">
-        <div class="section-head">
-          <h2>${m.nonClubxSection}</h2>
-          <button class="button small primary" data-add-guest>${m.addGuest}</button>
-        </div>
-        <div class="guest-list">
-          ${r.guests.length ? r.guests.map((guest) => guestCard(guest, false)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
-        </div>
-        ${r.errors.general ? `<p class="error">${r.errors.general}</p>` : ""}
-      </section>
-
-      <section class="panel">
         <label class="checkbox-row">
           <input type="checkbox" data-has-clubx ${r.hasClubXGuests ? "checked" : ""}>
           <span>${m.clubxQuestion}</span>
@@ -475,10 +466,23 @@ function guestReservationPage() {
             <h2>${m.clubxSection}</h2>
             <button class="button small dark" data-add-clubx>${m.addClubx}</button>
           </div>
+          <p class="muted">${m.clubxGuide}</p>
           <div class="guest-list">
             ${r.clubxGuests.length ? r.clubxGuests.map((guest) => guestCard(guest, true)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
           </div>
         ` : ""}
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>${m.nonClubxSection}</h2>
+          <button class="button small primary" data-add-guest>${m.addGuest}</button>
+        </div>
+        <p class="muted">${m.nonClubxGuide}</p>
+        <div class="guest-list">
+          ${r.guests.length ? r.guests.map((guest) => guestCard(guest, false)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
+        </div>
+        ${r.errors.general ? `<p class="error">${r.errors.general}</p>` : ""}
       </section>
 
       <section class="panel">
@@ -511,9 +515,10 @@ function guestCard(guest, isClubx) {
   const errors = appState.reservation.errors || {};
   return `
     <div class="guest-card ${isClubx ? "clubx" : ""}" data-card-id="${guest.id}">
-      ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
-      ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
-      ${isClubx ? fieldHtml(m.username, "username", guest.id, guest.clubxUsername, errors[`username-${guest.id}`]) : ""}
+      ${isClubx
+        ? fieldHtml(m.username, "username", guest.id, guest.clubxUsername, errors[`username-${guest.id}`])
+        : `${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
+           ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}`}
       <button class="button small" data-delete="${guest.id}" data-type="${isClubx ? "clubx" : "guest"}">${m.delete}</button>
     </div>
   `;
@@ -740,7 +745,7 @@ function selectSlot(slot) {
     r.selectedTimeSlots = timeSlots.slice(min, max + 1);
   }
 
-  if (r.selectedTimeSlots.length > 4) r.selectedTimeSlots = r.selectedTimeSlots.slice(0, 4);
+  if (r.selectedTimeSlots.length > 3) r.selectedTimeSlots = r.selectedTimeSlots.slice(0, 3);
   delete r.errors.time;
   render();
 }
@@ -766,7 +771,7 @@ function bindLookupEvents() {
     else {
       const normalized = normalizePhone(phone);
       appState.lookupResult = getSavedReservations().find((reservation) =>
-        [...reservation.guests, ...reservation.clubxGuests].some((guest) => guest.name.trim() === name && normalizePhone(guest.phone) === normalized)
+        (reservation.guests || []).some((guest) => guest.name.trim() === name && normalizePhone(guest.phone) === normalized)
       );
       if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;
     }

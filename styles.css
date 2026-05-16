@@ -356,7 +356,13 @@ button:disabled {
 }
 
 .guest-card.clubx {
-  grid-template-columns: 1fr 1fr 1fr auto;
+  grid-template-columns: 1fr auto;
+}
+
+.guest-card > .button {
+  align-self: start;
+  min-height: 46px;
+  margin-top: 24px;
 }
 
 .field {
@@ -557,6 +563,11 @@ button:disabled {
   .guest-card,
   .guest-card.clubx {
     grid-template-columns: 1fr;
+  }
+
+  .guest-card > .button {
+    width: 100%;
+    margin-top: 0;
   }
 
   .topbar,
