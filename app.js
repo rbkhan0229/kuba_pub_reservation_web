@@ -1,5 +1,6 @@
 const STORE_KEY = "kuba_pub_reservations";
 const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_id";
+const unavailableTimeSlots = [];
 
 const appState = {
   lang: localStorage.getItem("kuba_lang") || "ko",
@@ -308,6 +309,45 @@ function validateUsername(username) {
   return username.trim().length >= 2;
 }
 
+function hasGuestInput(guest) {
+  return Boolean(guest.name.trim() || guest.phone.trim());
+}
+
+function isGuestComplete(guest) {
+  return validateName(guest.name) && validatePhone(guest.phone);
+}
+
+function hasClubXGuestInput(guest) {
+  return Boolean(guest.clubxUsername.trim());
+}
+
+function isClubXGuestComplete(guest) {
+  return validateUsername(guest.clubxUsername);
+}
+
+function completedGuests(reservation) {
+  return reservation.guests.filter(isGuestComplete);
+}
+
+function completedClubXGuests(reservation) {
+  return reservation.clubxGuests.filter(isClubXGuestComplete);
+}
+
+function completedGuestCount(reservation) {
+  return (
+    completedGuests(reservation).length +
+    completedClubXGuests(reservation).length
+  );
+}
+
+function updateTotalCountDom() {
+  const totalCount = document.querySelector("[data-total-count]");
+  if (!totalCount || !appState.reservation) return;
+  totalCount.textContent = messages().total(
+    completedGuestCount(appState.reservation),
+  );
+}
+
 function getSavedReservations() {
   try {
     return JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
@@ -346,19 +386,19 @@ function validateReservation() {
   const r = appState.reservation;
   const errors = {};
 
-  r.guests.forEach((guest) => {
+  r.guests.filter(hasGuestInput).forEach((guest) => {
     if (!validateName(guest.name))
       errors[`name-${guest.id}`] = m.validation.name;
     if (!validatePhone(guest.phone))
       errors[`phone-${guest.id}`] = m.validation.phone;
   });
 
-  r.clubxGuests.forEach((guest) => {
+  r.clubxGuests.filter(hasClubXGuestInput).forEach((guest) => {
     if (!validateUsername(guest.clubxUsername))
       errors[`username-${guest.id}`] = m.validation.username;
   });
 
-  const total = r.guests.length + r.clubxGuests.length;
+  const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
   if (r.selectedTimeSlots.length < 2) errors.time = m.validation.timeShort;
   if (r.selectedTimeSlots.length > 3) errors.time = m.validation.timeLong;
@@ -370,16 +410,18 @@ function validateReservation() {
 
 function createFinalReservation() {
   const r = appState.reservation;
+  const guests = completedGuests(r);
+  const clubxGuests = completedClubXGuests(r);
   return {
     id: `KUBA-${Date.now().toString(36).toUpperCase()}`,
     submittedAt: new Date().toLocaleString(
       appState.lang === "ko" ? "ko-KR" : "en-US",
     ),
-    guests: copy(r.guests),
+    guests: copy(guests),
     hasClubXGuests: r.hasClubXGuests,
-    clubxGuests: copy(r.clubxGuests),
+    clubxGuests: copy(clubxGuests),
     selectedTimeSlots: [...r.selectedTimeSlots],
-    totalGuestCount: r.guests.length + r.clubxGuests.length,
+    totalGuestCount: guests.length + clubxGuests.length,
     privacyConsent: r.privacyConsent,
   };
 }
@@ -512,11 +554,12 @@ function guestReservationPage() {
   if (!appState.reservation) initReservation();
   const m = messages();
   const r = appState.reservation;
+  const totalGuestCount = completedGuestCount(r);
   const finalDraft = {
-    guests: r.guests,
-    clubxGuests: r.clubxGuests,
+    guests: completedGuests(r),
+    clubxGuests: completedClubXGuests(r),
     selectedTimeSlots: r.selectedTimeSlots,
-    totalGuestCount: r.guests.length + r.clubxGuests.length,
+    totalGuestCount,
   };
 
   return layout(`
@@ -526,7 +569,7 @@ function guestReservationPage() {
         <h1 class="page-title">${m.guestTitle}</h1>
         <p class="muted">${m.guestGuide}</p>
       </div>
-      <div class="total-pill">${m.total(r.guests.length + r.clubxGuests.length)}</div>
+      <div class="total-pill" data-total-count>${m.total(totalGuestCount)}</div>
     </div>
     <div class="content-grid">
       <section class="panel">
@@ -653,8 +696,9 @@ function timeSlotGrid() {
         ${timeSlots
           .map((slot) => {
             const end = slotEndTime(slot);
+            const isUnavailable = unavailableTimeSlots.includes(slot);
             return `
-          <button class="slot-button ${selected.includes(slot) ? "selected" : ""}" data-slot="${slot}" aria-label="${slot} - ${end}">
+          <button class="slot-button ${selected.includes(slot) ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${slot}" aria-label="${slot} - ${end}" ${isUnavailable ? "disabled" : ""}>
             <span class="slot-interval" aria-hidden="true">${slot} - ${end}</span>
             <span class="slot-bar"></span>
           </button>
@@ -834,6 +878,7 @@ function bindReservationEvents() {
           : input.dataset.field;
       guest[key] = value;
       delete r.errors[`${input.dataset.field}-${guest.id}`];
+      updateTotalCountDom();
     });
   });
 
@@ -882,6 +927,7 @@ function bindReservationEvents() {
 }
 
 function selectSlot(slot) {
+  if (unavailableTimeSlots.includes(slot)) return;
   const r = appState.reservation;
   const clicked = timeSlots.indexOf(slot);
   const selectedIndexes = r.selectedTimeSlots

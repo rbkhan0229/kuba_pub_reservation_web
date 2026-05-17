@@ -518,14 +518,14 @@ button:disabled {
   min-height: 88px;
   border: 0;
   background: #fff;
-  color: var(--muted);
+  color: var(--ink);
   padding: 10px 6px;
   font-size: 12px;
   font-weight: 850;
 }
 
 .slot-interval {
-  color: var(--muted);
+  color: var(--ink);
   font-size: 11px;
   line-height: 1.15;
   text-align: center;
@@ -535,7 +535,8 @@ button:disabled {
   height: 30px;
   margin: 0;
   border-radius: 3px;
-  background: #727272;
+  border: 1px solid var(--line);
+  background: #fff;
 }
 
 .slot-button.selected {
@@ -543,7 +544,23 @@ button:disabled {
 }
 
 .slot-button.selected .slot-bar {
+  border-color: var(--green);
   background: var(--green);
+}
+
+.slot-button.unavailable {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 1;
+}
+
+.slot-button.unavailable .slot-interval {
+  color: var(--muted);
+}
+
+.slot-button.unavailable .slot-bar {
+  border-color: #727272;
+  background: #727272;
 }
 
 .slot-button:focus {
