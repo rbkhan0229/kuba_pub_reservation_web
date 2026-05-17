@@ -246,7 +246,9 @@ function messages() {
 
 function navigate(path) {
   const normalizedPath = normalizePath(path);
-  history.pushState({}, "", normalizedPath);
+  if (normalizedPath !== appState.route) {
+    history.pushState({}, "", normalizedPath);
+  }
   appState.route = normalizedPath;
   if (normalizedPath === "/guest-reservation" && !appState.reservation) initReservation();
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -658,13 +660,6 @@ function render() {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-link]").forEach((link) => {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      navigate(link.getAttribute("href"));
-    });
-  });
-
   document.querySelectorAll("[data-lang]").forEach((button) => {
     button.addEventListener("click", () => setLang(button.dataset.lang));
   });
@@ -801,6 +796,14 @@ function bindLookupEvents() {
     render();
   });
 }
+
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("[data-link]");
+  if (!link) return;
+
+  event.preventDefault();
+  navigate(link.getAttribute("href"));
+});
 
 window.addEventListener("popstate", () => {
   appState.route = normalizePath(window.location.pathname);
