@@ -2,9 +2,23 @@ const STORE_KEY = "kuba_pub_reservations";
 const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_id";
 const unavailableTimeSlots = [];
 
+function normalizePath(path) {
+  if (!path) return "/";
+
+  let normalized = String(path).trim().split("?")[0].split("#")[0] || "/";
+  if (!normalized.startsWith("/")) normalized = `/${normalized}`;
+  normalized = normalized.replace(/\/index\.html$/, "/").replace(/\/+/g, "/");
+
+  if (normalized.length > 1 && normalized.endsWith("/")) {
+    normalized = normalized.slice(0, -1);
+  }
+
+  return normalized || "/";
+}
+
 const appState = {
   lang: localStorage.getItem("kuba_lang") || "ko",
-  route: window.location.pathname,
+  route: normalizePath(window.location.pathname),
   reservation: null,
   lookupResult: null,
   lookupMessage: "",
@@ -272,9 +286,12 @@ function messages() {
 }
 
 function navigate(path) {
-  history.pushState({}, "", path);
-  appState.route = path;
-  if (path === "/guest-reservation" && !appState.reservation) initReservation();
+  const normalizedPath = normalizePath(path);
+  if (normalizedPath !== appState.route) {
+    history.pushState({}, "", normalizedPath);
+  }
+  appState.route = normalizedPath;
+  if (normalizedPath === "/guest-reservation" && !appState.reservation) initReservation();
   window.scrollTo({ top: 0, behavior: "smooth" });
   render();
 }
@@ -811,13 +828,6 @@ function render() {
 }
 
 function bindEvents() {
-  document.querySelectorAll("[data-link]").forEach((link) => {
-    link.addEventListener("click", (event) => {
-      event.preventDefault();
-      navigate(link.getAttribute("href"));
-    });
-  });
-
   document.querySelectorAll("[data-lang]").forEach((button) => {
     button.addEventListener("click", () => setLang(button.dataset.lang));
   });
@@ -1003,8 +1013,16 @@ function bindLookupEvents() {
   });
 }
 
+document.addEventListener("click", (event) => {
+  const link = event.target.closest("[data-link]");
+  if (!link) return;
+
+  event.preventDefault();
+  navigate(link.getAttribute("href"));
+});
+
 window.addEventListener("popstate", () => {
-  appState.route = window.location.pathname;
+  appState.route = normalizePath(window.location.pathname);
   render();
 });
 
