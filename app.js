@@ -1,4 +1,5 @@
 const STORE_KEY = "kuba_pub_reservations";
+const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_id";
 
 const appState = {
   lang: localStorage.getItem("kuba_lang") || "ko",
@@ -69,6 +70,9 @@ const t = {
     cancel: "취소",
     confirm: "최종 신청",
     complete: "예약 신청이 완료되었습니다.",
+    completeGuide:
+      "아래 예약 정보를 확인해주세요. 같은 정보는 예약조회 페이지에서도 다시 확인할 수 있습니다.",
+    newReservation: "새 예약 신청하기",
     reservationId: "예약 ID",
     submittedAt: "신청 완료 시간",
     nonClubxGuests: "비회원 인원 정보",
@@ -173,6 +177,9 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     cancel: "Cancel",
     confirm: "Confirm Reservation",
     complete: "Your reservation has been submitted.",
+    completeGuide:
+      "Please review your reservation details below. You can also find them later on the reservation lookup page.",
+    newReservation: "Submit Another Reservation",
     reservationId: "Reservation ID",
     submittedAt: "Submitted At",
     nonClubxGuests: "Non-ClubX Guest Information",
@@ -522,7 +529,6 @@ function guestReservationPage() {
       <div class="total-pill">${m.total(r.guests.length + r.clubxGuests.length)}</div>
     </div>
     <div class="content-grid">
-      ${appState.submitted ? `<div class="toast">${m.complete}<br>${m.reservationId}: ${appState.submitted.id}</div>` : ""}
       <section class="panel">
         <div class="section-head">
           <h2>${m.nonClubxSection}</h2>
@@ -576,6 +582,32 @@ function guestReservationPage() {
       <button class="button red" data-submit>${m.submit}</button>
     </div>
     ${appState.modalOpen ? confirmModal(finalDraft) : ""}
+  `);
+}
+
+function reservationCompletePage() {
+  const m = messages();
+  const savedReservations = getSavedReservations();
+  const lastSubmittedId = sessionStorage.getItem(LAST_SUBMITTED_KEY);
+  const reservation =
+    appState.submitted ||
+    savedReservations.find((item) => item.id === lastSubmittedId) ||
+    savedReservations[0];
+
+  return layout(`
+    <div class="content-grid">
+      <section class="panel emphasis">
+        <span class="section-label">Complete</span>
+        <h1 class="page-title">${m.complete}</h1>
+        <p class="muted">${m.completeGuide}</p>
+      </section>
+      ${reservation ? `<section class="panel">${summaryHtml(reservation)}</section>` : ""}
+      <div class="form-actions" style="justify-content:flex-start">
+        <a class="button primary small" href="/reservation-lookup" data-link>${m.lookup}</a>
+        <a class="button small" href="/guest-reservation" data-link>${m.newReservation}</a>
+        <a class="button small" href="/" data-link>${m.backHome}</a>
+      </div>
+    </div>
   `);
 }
 
@@ -723,6 +755,7 @@ function render() {
     "/": homePage,
     "/clubx": clubxPage,
     "/guest-reservation": guestReservationPage,
+    "/reservation-complete": reservationCompletePage,
     "/reservation-lookup": lookupPage,
     "/privacy-terms": termsPage,
     "/faq": faqPage,
@@ -841,9 +874,10 @@ function bindReservationEvents() {
     const finalReservation = createFinalReservation();
     saveReservation(finalReservation);
     appState.submitted = finalReservation;
+    sessionStorage.setItem(LAST_SUBMITTED_KEY, finalReservation.id);
     appState.modalOpen = false;
     initReservation();
-    render();
+    navigate("/reservation-complete");
   });
 }
 
