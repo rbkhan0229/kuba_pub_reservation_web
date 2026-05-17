@@ -12,4 +12,6 @@ class SpaHandler(SimpleHTTPRequestHandler):
 
 if __name__ == "__main__":
     port = int(sys.argv[1] if len(sys.argv) > 1 else os.environ.get("PORT", "4173"))
-    ThreadingHTTPServer(("127.0.0.1", port), SpaHandler).serve_forever()
+    host = os.environ.get("HOST", "0.0.0.0")
+    print(f"Serving on http://{host}:{port}")
+    ThreadingHTTPServer((host, port), SpaHandler).serve_forever()
