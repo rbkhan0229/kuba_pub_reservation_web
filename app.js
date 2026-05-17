@@ -1,6 +1,61 @@
-const STORE_KEY = "kuba_pub_reservations";
-const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_id";
-const unavailableTimeSlots = [];
+const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_code";
+
+const RUNTIME_CONFIG =
+  (typeof window !== "undefined" && window.KUBA_PUB_CONFIG) || {};
+const API_BASE = (RUNTIME_CONFIG.API_BASE || "").replace(/\/$/, "");
+
+async function apiRequest(path, { method = "GET", body } = {}) {
+  if (!API_BASE) {
+    throw new Error(
+      "API_BASE is not configured. Edit config.js to point to your backend.",
+    );
+  }
+  const headers = { Accept: "application/json" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  let response;
+  try {
+    response = await fetch(`${API_BASE}${path}`, {
+      method,
+      headers,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch (err) {
+    throw new Error(
+      appState && appState.lang === "en"
+        ? "Network error. Please try again."
+        : "네트워크 오류가 발생했습니다. 다시 시도해주세요.",
+    );
+  }
+  const text = await response.text();
+  let data = null;
+  if (text) {
+    try {
+      data = JSON.parse(text);
+    } catch {
+      data = null;
+    }
+  }
+  if (!response.ok) {
+    const detail =
+      (data && (data.detail || data.message)) ||
+      `Request failed (${response.status})`;
+    const err = new Error(
+      typeof detail === "string" ? detail : JSON.stringify(detail),
+    );
+    err.status = response.status;
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+function apiGet(path) {
+  return apiRequest(path);
+}
+
+function apiPost(path, body) {
+  return apiRequest(path, { method: "POST", body });
+}
 
 function normalizePath(path) {
   if (!path) return "/";
@@ -25,12 +80,40 @@ const appState = {
   modalOpen: false,
   androidNotice: "",
   submitted: null,
+  // Backend-driven configuration / state
+  configLoaded: false,
+  configError: "",
+  eventId: null,
+  serviceDate: null,
+  slotIntervalMinutes: 30,
+  minBookingMinutes: 60,
+  maxBookingMinutes: 90,
+  availability: null,
+  availabilityLoading: false,
+  availabilityError: "",
+  availabilityPartySize: 0,
+  submitting: false,
+  submitError: "",
+  lookupLoading: false,
 };
+
+// Time-block runtime state, populated from backend availability.
+let timeSlots = [
+  "18:00", "18:30", "19:00", "19:30", "20:00", "20:30",
+  "21:00", "21:30", "22:00", "22:30", "23:00", "23:30",
+  "00:00", "00:30", "01:00",
+];
+let blockMap = {}; // label -> { id, start_minute, end_minute, status, remaining_tables }
 
 const emptyGuest = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
 const emptyClubXGuest = () => ({
   id: crypto.randomUUID(),
-  clubxUsername: "",
+  query: "",
+  results: [],
+  searching: false,
+  searchError: "",
+  selectedUser: null,
+  searchToken: 0,
 });
 
 const t = {
@@ -138,6 +221,21 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     faqTitle: "FAQ",
     faqQ: "Q. 일행 중 일부만 ClubX를 통해 예약하고 싶으면 어떻게 하나요?",
     faqA: "A. ClubX 사용자들끼리만 친구 태그를 통해 예약한 후, 비회원 예약 페이지에서 `ClubX를 통해 예약한 일행이 있나요?`에 예를 체크하고 ClubX Username을 기재해주시면 됩니다.",
+    clubxSearchPlaceholder: "이름 또는 ClubX Username을 입력하세요 (2자 이상)",
+    clubxSearchHint: "최소 2자 이상 입력 후 후보에서 선택해주세요.",
+    clubxSearchEmpty: "일치하는 사용자가 없습니다.",
+    clubxSearchError: "검색 중 오류가 발생했습니다.",
+    clubxSelected: "선택됨",
+    clubxChange: "변경",
+    selectedRequired: "목록에서 ClubX 사용자를 선택해주세요.",
+    availabilityLoading: "예약 가능 시간을 불러오는 중...",
+    availabilityError: "예약 가능 시간을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+    soldOut: "선택한 시간대가 마감되었습니다. 다른 시간을 선택해주세요.",
+    submitting: "예약 신청 중...",
+    submitError: "예약 신청에 실패했습니다.",
+    completeRefreshHint:
+      "예약 정보가 사라졌다면 예약조회 페이지에서 이름/연락처 또는 예약번호로 다시 조회해주세요.",
+    configError: "예약 서비스 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
   },
   en: {
     brand: "KUBA Festival Pub",
@@ -245,25 +343,29 @@ Collected personal information will not be used for purposes other than operatin
     faqTitle: "FAQ",
     faqQ: "Q. What should I do if only some members of my group want to reserve through ClubX?",
     faqA: "A. ClubX users can reserve together by tagging each other as friends in the app. Then, on the guest reservation page, check `Are there guests who reserved through ClubX?` and enter their ClubX Username.",
+    clubxSearchPlaceholder: "Type a legal name or ClubX username (min 2 chars)",
+    clubxSearchHint: "Type at least 2 characters and pick a user from the list.",
+    clubxSearchEmpty: "No matching users found.",
+    clubxSearchError: "Search failed.",
+    clubxSelected: "Selected",
+    clubxChange: "Change",
+    selectedRequired: "Please select a ClubX user from the list.",
+    availabilityLoading: "Loading available time slots...",
+    availabilityError: "Failed to load availability. Please try again.",
+    soldOut:
+      "The selected time was just sold out. Please pick another time.",
+    submitting: "Submitting reservation...",
+    submitError: "Reservation submission failed.",
+    completeRefreshHint:
+      "If you don't see your reservation details, look them up on the lookup page using your name and phone or reservation code.",
+    configError: "Failed to load reservation service settings. Please try again.",
   },
 };
 
-const timeSlots = [
-  "18:00",
-  "18:30",
-  "19:00",
-  "19:30",
-  "20:00",
-  "20:30",
-  "21:00",
-  "21:30",
-  "22:00",
-  "22:30",
-  "23:00",
-  "23:30",
-  "00:00",
-  "00:30",
-  "01:00",
+const FALLBACK_TIME_SLOTS = [
+  "18:00", "18:30", "19:00", "19:30", "20:00", "20:30",
+  "21:00", "21:30", "22:00", "22:30", "23:00", "23:30",
+  "00:00", "00:30", "01:00",
 ];
 
 function initReservation() {
@@ -335,11 +437,15 @@ function isGuestComplete(guest) {
 }
 
 function hasClubXGuestInput(guest) {
-  return Boolean(guest.clubxUsername.trim());
+  return Boolean(
+    (guest.query && guest.query.trim()) ||
+      guest.selectedUser ||
+      (guest.clubxUsername && guest.clubxUsername.trim()),
+  );
 }
 
 function isClubXGuestComplete(guest) {
-  return validateUsername(guest.clubxUsername);
+  return Boolean(guest.selectedUser && guest.selectedUser.user_id);
 }
 
 function completedGuests(reservation) {
@@ -365,18 +471,37 @@ function updateTotalCountDom() {
   );
 }
 
+function getSlotInterval() {
+  return appState.slotIntervalMinutes || 30;
+}
+
+function getMinSlotCount() {
+  const interval = getSlotInterval();
+  return Math.max(1, Math.ceil((appState.minBookingMinutes || 60) / interval));
+}
+
+function getMaxSlotCount() {
+  const interval = getSlotInterval();
+  return Math.max(
+    getMinSlotCount(),
+    Math.floor((appState.maxBookingMinutes || 90) / interval),
+  );
+}
+
+function isSlotUnavailable(label) {
+  const block = blockMap[label];
+  if (!block) return false;
+  return block.status === "sold_out";
+}
+
 function getSavedReservations() {
+  // Legacy localStorage cache is no longer authoritative. Returned only for
+  // backwards compatibility with any code path still calling it.
   try {
-    return JSON.parse(localStorage.getItem(STORE_KEY) || "[]");
+    return JSON.parse(localStorage.getItem("kuba_pub_reservations") || "[]");
   } catch {
     return [];
   }
-}
-
-function saveReservation(reservation) {
-  const saved = getSavedReservations();
-  saved.unshift(reservation);
-  localStorage.setItem(STORE_KEY, JSON.stringify(saved));
 }
 
 function timeRange(slots) {
@@ -386,16 +511,26 @@ function timeRange(slots) {
     .sort((a, b) => a - b);
   const start = timeSlots[indexes[0]];
   const last = timeSlots[indexes[indexes.length - 1]];
-  const [hour, minute] = last.split(":").map(Number);
-  const endDate = new Date(2026, 4, 11, hour, minute + 30);
-  const end = `${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`;
+  const end = slotEndTime(last);
   return `${start} - ${end}`;
 }
 
 function slotEndTime(slot) {
+  const block = blockMap[slot];
+  if (block && typeof block.end_minute === "number") {
+    return minuteToLabel(block.end_minute);
+  }
   const [hour, minute] = slot.split(":").map(Number);
-  const endDate = new Date(2026, 4, 11, hour, minute + 30);
+  const interval = getSlotInterval();
+  const endDate = new Date(2026, 4, 11, hour, minute + interval);
   return `${String(endDate.getHours()).padStart(2, "0")}:${String(endDate.getMinutes()).padStart(2, "0")}`;
+}
+
+function minuteToLabel(totalMinutes) {
+  const m = ((totalMinutes % (24 * 60)) + 24 * 60) % (24 * 60);
+  const hh = Math.floor(m / 60);
+  const mm = m % 60;
+  return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
 function validateReservation() {
@@ -410,15 +545,18 @@ function validateReservation() {
       errors[`phone-${guest.id}`] = m.validation.phone;
   });
 
-  r.clubxGuests.filter(hasClubXGuestInput).forEach((guest) => {
-    if (!validateUsername(guest.clubxUsername))
-      errors[`username-${guest.id}`] = m.validation.username;
+  r.clubxGuests.forEach((guest) => {
+    if (!isClubXGuestComplete(guest)) {
+      errors[`username-${guest.id}`] = m.selectedRequired;
+    }
   });
 
   const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
-  if (r.selectedTimeSlots.length < 2) errors.time = m.validation.timeShort;
-  if (r.selectedTimeSlots.length > 3) errors.time = m.validation.timeLong;
+  const minSlots = getMinSlotCount();
+  const maxSlots = getMaxSlotCount();
+  if (r.selectedTimeSlots.length < minSlots) errors.time = m.validation.timeShort;
+  if (r.selectedTimeSlots.length > maxSlots) errors.time = m.validation.timeLong;
   if (!r.privacyConsent) errors.privacy = m.validation.privacy;
 
   r.errors = errors;
@@ -430,51 +568,90 @@ function createFinalReservation() {
   const guests = completedGuests(r);
   const clubxGuests = completedClubXGuests(r);
   return {
-    id: `KUBA-${Date.now().toString(36).toUpperCase()}`,
     submittedAt: new Date().toLocaleString(
       appState.lang === "ko" ? "ko-KR" : "en-US",
     ),
     guests: copy(guests),
     hasClubXGuests: r.hasClubXGuests,
-    clubxGuests: copy(clubxGuests),
+    clubxGuests: clubxGuests.map((g) => ({
+      id: g.id,
+      clubxUsername: g.selectedUser ? g.selectedUser.username : "",
+      displayName: g.selectedUser ? g.selectedUser.display_name : "",
+    })),
     selectedTimeSlots: [...r.selectedTimeSlots],
     totalGuestCount: guests.length + clubxGuests.length,
     privacyConsent: r.privacyConsent,
   };
 }
 
+function buildReservationPayload() {
+  const r = appState.reservation;
+  const guests = completedGuests(r);
+  const clubxGuests = completedClubXGuests(r);
+  const sortedSlots = [...r.selectedTimeSlots].sort(
+    (a, b) => timeSlots.indexOf(a) - timeSlots.indexOf(b),
+  );
+  const first = blockMap[sortedSlots[0]];
+  const last = blockMap[sortedSlots[sortedSlots.length - 1]];
+  if (!first || !last) {
+    throw new Error(messages().soldOut);
+  }
+  return {
+    event_id: appState.eventId,
+    start_minute: first.start_minute,
+    end_minute: last.end_minute,
+    non_clubx_guests: guests.map((g) => ({
+      name: g.name.trim(),
+      phone: normalizePhone(g.phone),
+    })),
+    clubx_guests: clubxGuests.map((g) => ({
+      user_id: g.selectedUser.user_id,
+    })),
+    privacy_consent: true,
+    locale: appState.lang,
+  };
+}
+
 function summaryHtml(reservation) {
   const m = messages();
-  const guestRows = reservation.guests.length
+  const guestRows = reservation.guests && reservation.guests.length
     ? reservation.guests
         .map(
           (g) =>
-            `<li>${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))}</li>`,
+            `<li>${escapeHtml(g.name || "")}${g.phone ? ` · ${escapeHtml(formatPhone(g.phone))}` : ""}</li>`,
         )
         .join("")
     : `<li>${m.noGuests}</li>`;
-  const clubxRows = reservation.clubxGuests.length
+  const clubxRows = reservation.clubxGuests && reservation.clubxGuests.length
     ? reservation.clubxGuests
-        .map(
-          (g) => {
-            const legacyInfo =
-              g.name && g.phone
-                ? `${escapeHtml(g.name)} · ${escapeHtml(formatPhone(g.phone))} · `
-                : "";
-            return `<li>${legacyInfo}${escapeHtml(g.clubxUsername)}</li>`;
-          },
-        )
+        .map((g) => {
+          const display = g.displayName || g.display_name || "";
+          const username = g.clubxUsername || g.username || "";
+          const label = display && username
+            ? `${escapeHtml(display)} (@${escapeHtml(username)})`
+            : escapeHtml(display || username);
+          return `<li>${label}</li>`;
+        })
         .join("")
     : `<li>${m.noGuests}</li>`;
 
+  const code = reservation.reservation_code || reservation.id;
+  const submittedAt = reservation.submittedAt || reservation.submitted_at_display;
+  const slots = reservation.selectedTimeSlots || [];
+  const timeText = reservation.time_range_display || timeRange(slots);
+  const totalCount =
+    reservation.totalGuestCount ||
+    reservation.total_party_size ||
+    ((reservation.guests || []).length + (reservation.clubxGuests || []).length);
+
   return `
     <div class="summary">
-      ${reservation.id ? `<div class="summary-block"><h3>${m.reservationId}</h3><p class="muted">${reservation.id}</p></div>` : ""}
-      ${reservation.submittedAt ? `<div class="summary-block"><h3>${m.submittedAt}</h3><p class="muted">${reservation.submittedAt}</p></div>` : ""}
-      <div class="summary-block"><h3>${m.selectedTime}</h3><p class="muted">${timeRange(reservation.selectedTimeSlots)}</p></div>
+      ${code ? `<div class="summary-block"><h3>${m.reservationId}</h3><p class="muted">${escapeHtml(code)}</p></div>` : ""}
+      ${submittedAt ? `<div class="summary-block"><h3>${m.submittedAt}</h3><p class="muted">${escapeHtml(submittedAt)}</p></div>` : ""}
+      <div class="summary-block"><h3>${m.selectedTime}</h3><p class="muted">${escapeHtml(timeText)}</p></div>
       <div class="summary-block"><h3>${m.nonClubxGuests}</h3><ul class="summary-list">${guestRows}</ul></div>
       <div class="summary-block"><h3>${m.clubxGuests}</h3><ul class="summary-list">${clubxRows}</ul></div>
-      <div class="total-pill">${m.total(reservation.totalGuestCount || reservation.guests.length + reservation.clubxGuests.length)}</div>
+      <div class="total-pill">${m.total(totalCount)}</div>
     </div>
   `;
 }
@@ -639,7 +816,8 @@ function guestReservationPage() {
         ${r.errors.privacy ? `<p class="error">${r.errors.privacy}</p>` : ""}
       </section>
 
-      <button class="button red" data-submit>${m.submit}</button>
+      <button class="button red" data-submit ${appState.submitting ? "disabled" : ""}>${appState.submitting ? m.submitting : m.submit}</button>
+      ${appState.submitError ? `<p class="error">${escapeHtml(appState.submitError)}</p>` : ""}
     </div>
     ${appState.modalOpen ? confirmModal(finalDraft) : ""}
   `);
@@ -647,12 +825,7 @@ function guestReservationPage() {
 
 function reservationCompletePage() {
   const m = messages();
-  const savedReservations = getSavedReservations();
-  const lastSubmittedId = sessionStorage.getItem(LAST_SUBMITTED_KEY);
-  const reservation =
-    appState.submitted ||
-    savedReservations.find((item) => item.id === lastSubmittedId) ||
-    savedReservations[0];
+  const reservation = appState.submitted;
 
   return layout(`
     <div class="content-grid">
@@ -661,7 +834,9 @@ function reservationCompletePage() {
         <h1 class="page-title">${m.complete}</h1>
         <p class="muted">${m.completeGuide}</p>
       </section>
-      ${reservation ? `<section class="panel">${summaryHtml(reservation)}</section>` : ""}
+      ${reservation
+        ? `<section class="panel">${summaryHtml(reservation)}</section>`
+        : `<section class="panel"><p class="muted">${m.completeRefreshHint}</p></section>`}
       <div class="form-actions" style="justify-content:flex-start">
         <a class="button primary small" href="/reservation-lookup" data-link>${m.lookup}</a>
         <a class="button small" href="/guest-reservation" data-link>${m.newReservation}</a>
@@ -678,19 +853,63 @@ function guestCard(guest, isClubx) {
     <div class="guest-card ${isClubx ? "clubx" : ""}" data-card-id="${guest.id}">
       ${
         isClubx
-          ? fieldHtml(
-              m.username,
-              "username",
-              guest.id,
-              guest.clubxUsername,
-              errors[`username-${guest.id}`],
-            )
+          ? clubxGuestFieldHtml(guest, errors[`username-${guest.id}`])
           : `
               ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
               ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
             `
       }
       <button class="button small" data-delete="${guest.id}" data-type="${isClubx ? "clubx" : "guest"}">${m.delete}</button>
+    </div>
+  `;
+}
+
+function clubxGuestFieldHtml(guest, errorMessage) {
+  const m = messages();
+  if (guest.selectedUser) {
+    const u = guest.selectedUser;
+    const display = `${u.display_name || ""}${u.username ? ` (@${u.username})` : ""}`;
+    return `
+      <div class="field">
+        <label>${m.username}</label>
+        <div class="clubx-selected" role="status">
+          <span class="clubx-selected-label">${escapeHtml(display)}</span>
+          <button type="button" class="button small" data-clubx-clear="${guest.id}">${m.clubxChange}</button>
+        </div>
+        <span class="error">${errorMessage || ""}</span>
+      </div>
+    `;
+  }
+  const results = guest.results || [];
+  const showDropdown = (guest.query || "").trim().length >= 2;
+  let dropdown = "";
+  if (showDropdown) {
+    if (guest.searching) {
+      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">...</div></div>`;
+    } else if (guest.searchError) {
+      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">${escapeHtml(guest.searchError)}</div></div>`;
+    } else if (!results.length) {
+      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">${m.clubxSearchEmpty}</div></div>`;
+    } else {
+      dropdown = `<div class="clubx-dropdown">${results
+        .map(
+          (u) => `
+            <button type="button" class="clubx-dropdown-item" data-clubx-pick="${guest.id}" data-user-id="${escapeHtml(u.user_id)}">
+              <span class="clubx-dropdown-name">${escapeHtml(u.display_name || "")}</span>
+              <span class="clubx-dropdown-username">@${escapeHtml(u.username || "")}</span>
+            </button>
+          `,
+        )
+        .join("")}</div>`;
+    }
+  }
+  return `
+    <div class="field clubx-search-field">
+      <label for="clubx-search-${guest.id}">${m.username}</label>
+      <input id="clubx-search-${guest.id}" data-clubx-search="${guest.id}" value="${escapeHtml(guest.query || "")}" placeholder="${m.clubxSearchPlaceholder}" autocomplete="off" aria-invalid="${errorMessage ? "true" : "false"}">
+      ${dropdown}
+      <span class="clubx-hint muted">${m.clubxSearchHint}</span>
+      <span class="error">${errorMessage || ""}</span>
     </div>
   `;
 }
@@ -706,6 +925,12 @@ function fieldHtml(label, field, id, value, error) {
 }
 
 function timeSlotGrid() {
+  if (appState.availabilityLoading) {
+    return `<div class="time-grid-wrap"><p class="muted">${messages().availabilityLoading}</p></div>`;
+  }
+  if (appState.availabilityError) {
+    return `<div class="time-grid-wrap"><p class="error">${escapeHtml(appState.availabilityError)}</p></div>`;
+  }
   const selected = appState.reservation.selectedTimeSlots;
   return `
     <div class="time-grid-wrap">
@@ -713,7 +938,7 @@ function timeSlotGrid() {
         ${timeSlots
           .map((slot) => {
             const end = slotEndTime(slot);
-            const isUnavailable = unavailableTimeSlots.includes(slot);
+            const isUnavailable = isSlotUnavailable(slot);
             return `
           <button class="slot-button ${selected.includes(slot) ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${slot}" aria-label="${slot} - ${end}" ${isUnavailable ? "disabled" : ""}>
             <span class="slot-interval" aria-hidden="true">${slot} - ${end}</span>
@@ -837,7 +1062,11 @@ function bindEvents() {
     render();
   });
 
-  if (appState.route === "/guest-reservation") bindReservationEvents();
+  if (appState.route === "/guest-reservation") {
+    bindReservationEvents();
+    bindClubXSearchEvents();
+    ensureAvailabilityLoaded();
+  }
   if (appState.route === "/reservation-lookup") bindLookupEvents();
 }
 
@@ -925,21 +1154,71 @@ function bindReservationEvents() {
       render();
     });
 
-  document.querySelector("[data-confirm]")?.addEventListener("click", () => {
-    const finalReservation = createFinalReservation();
-    saveReservation(finalReservation);
-    appState.submitted = finalReservation;
-    sessionStorage.setItem(LAST_SUBMITTED_KEY, finalReservation.id);
-    appState.modalOpen = false;
-    initReservation();
-    navigate("/reservation-complete");
+  document.querySelector("[data-confirm]")?.addEventListener("click", async () => {
+    if (appState.submitting) return;
+    let payload;
+    try {
+      payload = buildReservationPayload();
+    } catch (err) {
+      appState.submitError = err.message;
+      appState.modalOpen = false;
+      render();
+      return;
+    }
+    appState.submitting = true;
+    appState.submitError = "";
+    render();
+    try {
+      const created = await apiPost("/public/pub-reservations", payload);
+      const m = messages();
+      appState.submitted = {
+        reservation_code: created.reservation_code,
+        submittedAt: new Date().toLocaleString(
+          appState.lang === "ko" ? "ko-KR" : "en-US",
+        ),
+        time_range_display: created.time_range
+          ? `${created.time_range.start_label} - ${created.time_range.end_label}`
+          : timeRange(payload && appState.reservation
+              ? appState.reservation.selectedTimeSlots
+              : []),
+        guests: (created.non_clubx_guests || []).map((g) => ({
+          name: g.name,
+          phone: g.phone_masked || "",
+        })),
+        clubxGuests: (created.clubx_guests || []).map((g) => ({
+          clubxUsername: g.username,
+          displayName: g.display_name,
+        })),
+        total_party_size: created.total_party_size,
+        selectedTimeSlots: [],
+      };
+      try {
+        sessionStorage.setItem(LAST_SUBMITTED_KEY, created.reservation_code);
+      } catch {}
+      appState.modalOpen = false;
+      appState.submitting = false;
+      initReservation();
+      navigate("/reservation-complete");
+    } catch (err) {
+      appState.submitting = false;
+      appState.modalOpen = false;
+      if (err.status === 409) {
+        appState.submitError = messages().soldOut;
+        // Refresh availability since the grid changed.
+        loadAvailabilityForCurrentPartySize();
+      } else {
+        appState.submitError = err.message || messages().submitError;
+      }
+      render();
+    }
   });
 }
 
 function selectSlot(slot) {
-  if (unavailableTimeSlots.includes(slot)) return;
+  if (isSlotUnavailable(slot)) return;
   const r = appState.reservation;
   const clicked = timeSlots.indexOf(slot);
+  if (clicked < 0) return;
   const selectedIndexes = r.selectedTimeSlots
     .map((item) => timeSlots.indexOf(item))
     .sort((a, b) => a - b);
@@ -952,9 +1231,14 @@ function selectSlot(slot) {
     r.selectedTimeSlots = timeSlots.slice(min, max + 1);
   }
 
-  if (r.selectedTimeSlots.length > 3)
-    r.selectedTimeSlots = r.selectedTimeSlots.slice(0, 3);
+  const maxCount = getMaxSlotCount();
+  if (r.selectedTimeSlots.length > maxCount)
+    r.selectedTimeSlots = r.selectedTimeSlots.slice(0, maxCount);
+  // Drop sold-out slots from selection silently
+  r.selectedTimeSlots = r.selectedTimeSlots.filter((s) => !isSlotUnavailable(s));
   delete r.errors.time;
+  // Refresh availability filtered by current party size when the selection changes.
+  refreshAvailabilityForPartySize();
   render();
 }
 
@@ -972,7 +1256,7 @@ function bindLookupEvents() {
   usernameInput?.addEventListener("input", (event) => {
     appState.lookupUsername = event.target.value;
   });
-  document.querySelector("[data-lookup]")?.addEventListener("click", () => {
+  document.querySelector("[data-lookup]")?.addEventListener("click", async () => {
     const m = messages();
     const name = (appState.lookupName || "").trim();
     const phone = formatPhone(appState.lookupPhone || "");
@@ -980,36 +1264,70 @@ function bindLookupEvents() {
     appState.lookupResult = null;
     appState.lookupMessage = "";
 
+    let payload;
     if (username) {
       if (!validateUsername(username)) {
         appState.lookupMessage = m.validation.username;
-      } else {
-        const normalizedUsername = username.toLowerCase();
-        appState.lookupResult = getSavedReservations().find((reservation) =>
-          reservation.clubxGuests.some(
-            (guest) =>
-              guest.clubxUsername?.trim().toLowerCase() ===
-              normalizedUsername,
-          ),
-        );
-        if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;
+        render();
+        return;
       }
-    } else if (!validateName(name)) {
-      appState.lookupMessage = m.validation.name;
-    } else if (!validatePhone(phone)) {
-      appState.lookupMessage = m.validation.phone;
+      payload = { type: "clubx", clubx_username: username };
+    } else if (/^KUBA-/i.test(name) && !phone) {
+      // No-op: legacy ID format; ignore
+      appState.lookupMessage = m.lookupFail;
+      render();
+      return;
     } else {
-      const normalized = normalizePhone(phone);
-      appState.lookupResult = getSavedReservations().find((reservation) =>
-        [...reservation.guests, ...reservation.clubxGuests].some(
-          (guest) =>
-            guest.name?.trim() === name &&
-            normalizePhone(guest.phone || "") === normalized,
-        ),
-      );
-      if (!appState.lookupResult) appState.lookupMessage = m.lookupFail;
+      if (!validateName(name)) {
+        appState.lookupMessage = m.validation.name;
+        render();
+        return;
+      }
+      if (!validatePhone(phone)) {
+        appState.lookupMessage = m.validation.phone;
+        render();
+        return;
+      }
+      payload = { type: "guest", name, phone: normalizePhone(phone) };
     }
+    if (appState.eventId) payload.event_id = appState.eventId;
+
+    appState.lookupLoading = true;
     render();
+    try {
+      const response = await apiPost(
+        "/public/pub-reservations/lookup",
+        payload,
+      );
+      const items = response.reservations || [];
+      if (!items.length) {
+        appState.lookupMessage = m.lookupFail;
+      } else {
+        const first = items[0];
+        appState.lookupResult = {
+          reservation_code: first.reservation_code,
+          submittedAt: "",
+          time_range_display: first.time_range
+            ? `${first.time_range.start_label} - ${first.time_range.end_label}`
+            : "",
+          guests: (first.non_clubx_guests || []).map((g) => ({
+            name: g.name,
+            phone: g.phone_masked || "",
+          })),
+          clubxGuests: (first.clubx_guests || []).map((g) => ({
+            clubxUsername: g.username,
+            displayName: g.display_name,
+          })),
+          total_party_size: first.total_party_size,
+          selectedTimeSlots: [],
+        };
+      }
+    } catch (err) {
+      appState.lookupMessage = err.message || m.lookupFail;
+    } finally {
+      appState.lookupLoading = false;
+      render();
+    }
   });
 }
 
@@ -1028,4 +1346,204 @@ window.addEventListener("popstate", () => {
 
 document.documentElement.lang = appState.lang;
 if (appState.route === "/guest-reservation") initReservation();
+
+// ---- ClubX user search & backend bootstrap ----
+
+const clubxSearchTimers = new Map();
+
+function bindClubXSearchEvents() {
+  const r = appState.reservation;
+  if (!r) return;
+  document.querySelectorAll("[data-clubx-search]").forEach((input) => {
+    input.addEventListener("input", (event) => {
+      const guestId = input.dataset.clubxSearch;
+      const guest = r.clubxGuests.find((g) => g.id === guestId);
+      if (!guest) return;
+      guest.query = event.target.value;
+      guest.searchError = "";
+      delete r.errors[`username-${guest.id}`];
+      const query = guest.query.trim();
+      if (clubxSearchTimers.has(guestId)) {
+        clearTimeout(clubxSearchTimers.get(guestId));
+      }
+      if (query.length < 2) {
+        guest.results = [];
+        guest.searching = false;
+        renderClubXGuest(guest);
+        return;
+      }
+      guest.searching = true;
+      renderClubXGuest(guest);
+      const token = ++guest.searchToken;
+      const timer = setTimeout(async () => {
+        try {
+          const data = await apiGet(
+            `/public/pub-reservations/clubx-users/search?query=${encodeURIComponent(query)}`,
+          );
+          if (token !== guest.searchToken) return;
+          guest.results = (data && data.results) || [];
+          guest.searching = false;
+          guest.searchError = "";
+        } catch (err) {
+          if (token !== guest.searchToken) return;
+          guest.results = [];
+          guest.searching = false;
+          guest.searchError = err.message || messages().clubxSearchError;
+        } finally {
+          renderClubXGuest(guest);
+        }
+      }, 300);
+      clubxSearchTimers.set(guestId, timer);
+    });
+  });
+
+  document.querySelectorAll("[data-clubx-pick]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const guestId = button.dataset.clubxPick;
+      const userId = button.dataset.userId;
+      const guest = r.clubxGuests.find((g) => g.id === guestId);
+      if (!guest) return;
+      const user = (guest.results || []).find((u) => u.user_id === userId);
+      if (!user) return;
+      guest.selectedUser = user;
+      guest.query = `${user.display_name || ""} (@${user.username || ""})`;
+      guest.results = [];
+      delete r.errors[`username-${guest.id}`];
+      render();
+    });
+  });
+
+  document.querySelectorAll("[data-clubx-clear]").forEach((button) => {
+    button.addEventListener("click", () => {
+      const guestId = button.dataset.clubxClear;
+      const guest = r.clubxGuests.find((g) => g.id === guestId);
+      if (!guest) return;
+      guest.selectedUser = null;
+      guest.query = "";
+      guest.results = [];
+      render();
+    });
+  });
+}
+
+function renderClubXGuest(guest) {
+  // Re-render the entire form is the simplest path since search results affect layout.
+  // Preserve input focus on the search field for the guest being edited.
+  const activeId = document.activeElement && document.activeElement.id;
+  const selectionStart =
+    document.activeElement && "selectionStart" in document.activeElement
+      ? document.activeElement.selectionStart
+      : null;
+  render();
+  if (activeId) {
+    const next = document.getElementById(activeId);
+    if (next) {
+      next.focus();
+      if (selectionStart !== null && "setSelectionRange" in next) {
+        try {
+          next.setSelectionRange(selectionStart, selectionStart);
+        } catch {}
+      }
+    }
+  }
+}
+
+async function bootstrapConfig() {
+  if (appState.configLoaded) return;
+  try {
+    const cfg = await apiGet("/public/pub-reservations/config");
+    appState.eventId = cfg.event_id || null;
+    appState.serviceDate = cfg.service_date || null;
+    appState.slotIntervalMinutes = cfg.slot_interval_minutes || 30;
+    appState.minBookingMinutes = cfg.min_booking_minutes || 60;
+    appState.maxBookingMinutes = cfg.max_booking_minutes || 90;
+    appState.configLoaded = true;
+    appState.configError = "";
+  } catch (err) {
+    appState.configError = err.message || messages().configError;
+  }
+}
+
+async function ensureAvailabilityLoaded() {
+  if (!appState.configLoaded) {
+    await bootstrapConfig();
+    if (!appState.configLoaded) {
+      render();
+      return;
+    }
+  }
+  if (
+    appState.availability ||
+    appState.availabilityLoading ||
+    !appState.eventId
+  ) {
+    return;
+  }
+  await loadAvailabilityForCurrentPartySize();
+}
+
+async function loadAvailabilityForCurrentPartySize() {
+  if (!appState.eventId) return;
+  const partySize = Math.max(
+    1,
+    appState.reservation
+      ? completedGuestCount(appState.reservation) || 1
+      : 1,
+  );
+  appState.availabilityLoading = true;
+  appState.availabilityError = "";
+  appState.availabilityPartySize = partySize;
+  render();
+  try {
+    const data = await apiGet(
+      `/public/pub-reservations/events/${encodeURIComponent(appState.eventId)}/availability?party_size=${partySize}`,
+    );
+    applyAvailability(data);
+  } catch (err) {
+    appState.availabilityError = err.message || messages().availabilityError;
+  } finally {
+    appState.availabilityLoading = false;
+    render();
+  }
+}
+
+function applyAvailability(data) {
+  appState.availability = data;
+  appState.serviceDate = data.service_date || appState.serviceDate;
+  if (data.slot_interval_minutes)
+    appState.slotIntervalMinutes = data.slot_interval_minutes;
+  blockMap = {};
+  const labels = [];
+  (data.blocks || []).forEach((block) => {
+    const label = block.start_label || minuteToLabel(block.start_minute);
+    labels.push(label);
+    blockMap[label] = {
+      id: block.block_id,
+      start_minute: block.start_minute,
+      end_minute: block.end_minute,
+      status: block.status,
+      remaining_tables: block.remaining_tables,
+    };
+  });
+  if (labels.length) timeSlots = labels;
+  // Drop any currently-selected slots that no longer exist or are sold out.
+  if (appState.reservation) {
+    appState.reservation.selectedTimeSlots = appState.reservation.selectedTimeSlots.filter(
+      (s) => timeSlots.includes(s) && !isSlotUnavailable(s),
+    );
+  }
+}
+
+let partySizeRefreshTimer = null;
+function refreshAvailabilityForPartySize() {
+  if (!appState.eventId || !appState.reservation) return;
+  const partySize = completedGuestCount(appState.reservation) || 1;
+  if (partySize === appState.availabilityPartySize) return;
+  if (partySizeRefreshTimer) clearTimeout(partySizeRefreshTimer);
+  partySizeRefreshTimer = setTimeout(() => {
+    loadAvailabilityForCurrentPartySize();
+  }, 250);
+}
+
+bootstrapConfig().finally(() => render());
 render();
