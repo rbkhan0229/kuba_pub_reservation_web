@@ -118,6 +118,7 @@ let timeSlots = [];
 let blockMap = {}; // label -> { id, start_minute, end_minute, status, remaining_tables }
 
 const emptyGuest = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
+const emptyCompanion = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
 
 const emptyWaitlist = () => ({
   name: "",
@@ -183,8 +184,19 @@ const t = {
     guestTitle: "주점 예약",
     guestGuide:
       "예약자 본인과 동반 인원의 이름·연락처를 입력해주세요. 최소 2명부터 예약 가능합니다.",
-    nonClubxSection: "예약 인원",
-    addGuest: "인원 추가",
+    nonClubxSection: "예약자 정보",
+    representativeSection: "대표 예약자",
+    companionsSection: "동행자",
+    representativeName: "대표자 이름",
+    representativePhone: "대표자 연락처",
+    companionName: "동행자 이름",
+    addGuest: "동행자 추가",
+    noCompanions: "동행자가 없습니다. ‘동행자 추가’ 버튼으로 추가해주세요.",
+    partyMinWarning: "예약은 최소 2명부터 가능합니다.",
+    clubxTitle: "ClubX 예약 혜택 이벤트",
+    clubxComingSoon: "이벤트 오픈 준비중입니다.",
+    clubxComingSoonBtn: "준비중",
+    clubxFormNotice: "ClubX 예약 혜택은 준비중입니다.",
     name: "이름",
     phone: "연락처",
     delete: "삭제",
@@ -323,11 +335,12 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     lookupWalkinTab: "현장대기 조회",
     lookupLoadingLabel: "조회 중...",
     waitlistLookupLoadingLabel: "대기번호 조회 중...",
-    waitlistLookupCodeOrPhone: "대기 코드 또는 전화번호를 입력해주세요.",
-    waitlistLookupCode: "대기 코드",
+    waitlistLookupCodeOrPhone: "이름과 전화번호를 입력해주세요.",
     waitlistLookupPhone: "전화번호",
-    waitlistLookupName: "이름 (선택)",
+    waitlistLookupName: "이름",
     checkWaitlist: "현장대기 조회하기",
+    waitlistAutoRefreshHint: "대기 상태는 10초마다 자동으로 갱신됩니다.",
+    availabilitySoldOutNotice: "선택한 시간대가 방금 마감되었습니다. 다른 시간을 선택해주세요.",
     statusLabels: {
       submitted: "예약 접수",
       checked_in: "입장 완료",
@@ -362,8 +375,19 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     guestTitle: "Pub Reservation",
     guestGuide:
       "Enter the lead booker and every accompanying guest. Reservations require at least 2 guests.",
-    nonClubxSection: "Guests",
-    addGuest: "Add Guest",
+    nonClubxSection: "Reservation Holder",
+    representativeSection: "Lead Booker",
+    companionsSection: "Additional Guests",
+    representativeName: "Lead Name",
+    representativePhone: "Lead Phone",
+    companionName: "Guest Name",
+    addGuest: "Add Companion",
+    noCompanions: "No companions yet. Click ‘Add Companion’ to add one.",
+    partyMinWarning: "Reservations require at least 2 guests.",
+    clubxTitle: "ClubX Reservation Benefit Event",
+    clubxComingSoon: "This event is preparing to open.",
+    clubxComingSoonBtn: "Preparing",
+    clubxFormNotice: "ClubX reservation benefits are preparing to open.",
     name: "Name",
     phone: "Phone Number",
     delete: "Delete",
@@ -501,11 +525,12 @@ Collected personal information will not be used for purposes other than operatin
     lookupWalkinTab: "Walk-in Waitlist Lookup",
     lookupLoadingLabel: "Looking up...",
     waitlistLookupLoadingLabel: "Checking waitlist...",
-    waitlistLookupCodeOrPhone: "Enter a waitlist code or phone number.",
-    waitlistLookupCode: "Waitlist Code",
+    waitlistLookupCodeOrPhone: "Please enter your name and phone number.",
     waitlistLookupPhone: "Phone Number",
-    waitlistLookupName: "Name (optional)",
+    waitlistLookupName: "Name",
     checkWaitlist: "Check Waitlist",
+    waitlistAutoRefreshHint: "Your waitlist status refreshes automatically every 10 seconds.",
+    availabilitySoldOutNotice: "The selected time was just sold out. Please pick another time.",
     statusLabels: {
       submitted: "Submitted",
       checked_in: "Checked in",
@@ -521,7 +546,9 @@ Collected personal information will not be used for purposes other than operatin
 
 function initReservation() {
   appState.reservation = {
-    guests: [emptyGuest(), emptyGuest()],
+    // guests[0] is always the representative (name + phone required).
+    // guests[1..] are companions (name required only).
+    guests: [emptyGuest(), emptyCompanion()],
     selectedTimeSlots: [],
     privacyConsent: false,
     errors: {},
@@ -591,12 +618,22 @@ function hasGuestInput(guest) {
   return Boolean((guest.name || "").trim() || (guest.phone || "").trim());
 }
 
-function isGuestComplete(guest) {
+function isRepresentativeComplete(guest) {
   return validateName(guest.name) && validatePhone(guest.phone);
 }
 
+function isCompanionComplete(guest) {
+  return validateName(guest.name);
+}
+
 function completedGuests(reservation) {
-  return reservation.guests.filter(isGuestComplete);
+  const list = [];
+  const guests = reservation.guests || [];
+  if (guests[0] && isRepresentativeComplete(guests[0])) list.push(guests[0]);
+  for (let i = 1; i < guests.length; i += 1) {
+    if (isCompanionComplete(guests[i])) list.push(guests[i]);
+  }
+  return list;
 }
 
 function completedGuestCount(reservation) {
@@ -760,12 +797,19 @@ function validateReservation() {
   const r = appState.reservation;
   const errors = {};
 
-  r.guests.filter(hasGuestInput).forEach((guest) => {
-    if (!validateName(guest.name))
-      errors[`name-${guest.id}`] = m.validation.name;
-    if (!validatePhone(guest.phone))
-      errors[`phone-${guest.id}`] = m.validation.phone;
-  });
+  const rep = r.guests[0];
+  if (rep) {
+    if (!validateName(rep.name))
+      errors[`name-${rep.id}`] = m.validation.name;
+    if (!validatePhone(rep.phone))
+      errors[`phone-${rep.id}`] = m.validation.phone;
+  }
+
+  for (let i = 1; i < r.guests.length; i += 1) {
+    const g = r.guests[i];
+    if (!validateName(g.name))
+      errors[`name-${g.id}`] = m.validation.name;
+  }
 
   const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
@@ -835,20 +879,24 @@ function createFinalReservation() {
 function buildReservationPayload() {
   const r = appState.reservation;
   const guests = completedGuests(r);
+  const rep = r.guests[0] || {};
+  const repPhone = normalizePhone(rep.phone);
   const first = blockMap[r.selectedTimeSlots[0]];
   const last = blockMap[r.selectedTimeSlots[r.selectedTimeSlots.length - 1]];
   if (!first || !last || isSlotUnavailable(r.selectedTimeSlots[0])) {
     throw new Error(messages().soldOut);
   }
+  // All non-clubx guests share the representative phone for backend
+  // compatibility; the UI only collects/displays the rep's number.
   return {
     event_id: appState.eventId,
     start_minute: first.start_minute,
     end_minute: last.end_minute,
     non_clubx_guests: guests.map((g) => ({
       name: g.name.trim(),
-      phone: normalizePhone(g.phone),
+      phone: repPhone,
     })),
-    clubx_guests: [], // kept for backend compatibility; always empty
+    clubx_guests: [],
     privacy_consent: true,
     locale: appState.lang,
   };
@@ -979,6 +1027,12 @@ function homePage() {
             <a class="button dark" href="/reservation-lookup" data-link>${m.secondaryCta}</a>
           </div>
         </div>
+        <div class="card clubx-coming-soon" style="margin-top:18px;padding:16px;border-radius:14px;border:1px dashed #c9d1da;background:#f7f8fa">
+          <span class="section-label">ClubX</span>
+          <h3 style="margin:6px 0 4px;font-size:1.05rem">${m.clubxTitle}</h3>
+          <p class="muted" style="margin:0 0 12px">${m.clubxComingSoon}</p>
+          <button class="button small" type="button" disabled aria-disabled="true" style="opacity:0.6;cursor:not-allowed">${m.clubxComingSoonBtn}</button>
+        </div>
       </aside>
     </section>
   `);
@@ -1038,17 +1092,40 @@ function advanceReservationHtml(finalDraft) {
       </div>
     `;
   }
+  const totalGuestCount = completedGuestCount(r);
+  const rep = r.guests[0] || emptyGuest();
+  const companions = r.guests.slice(1);
+  const partyWarn = totalGuestCount < 2;
+  const submitDisabled = appState.submitting || partyWarn;
   return `
     <div class="content-grid">
       <section class="panel">
         <div class="section-head">
-          <h2>${m.nonClubxSection}</h2>
+          <h2>${m.representativeSection}</h2>
+        </div>
+        <div class="guest-list">
+          ${representativeCard(rep)}
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="section-head">
+          <h2>${m.companionsSection}</h2>
           <button class="button small dark" data-add-guest>${m.addGuest}</button>
         </div>
         <div class="guest-list">
-          ${r.guests.length ? r.guests.map((guest) => guestCard(guest)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
+          ${companions.length ? companions.map((guest) => companionCard(guest)).join("") : `<div class="empty-state">${m.noCompanions}</div>`}
         </div>
         ${r.errors.general ? `<p class="error">${r.errors.general}</p>` : ""}
+      </section>
+
+      <section class="panel" style="border:1px dashed #c9d1da;background:#f7f8fa">
+        <h2 style="margin:0 0 6px;font-size:1rem">${m.clubxTitle}</h2>
+        <p class="muted" style="margin:0 0 10px">${m.clubxFormNotice}</p>
+        <label class="checkbox-row" style="opacity:0.6">
+          <input type="checkbox" disabled aria-disabled="true">
+          <span>${m.clubxComingSoonBtn}</span>
+        </label>
       </section>
 
       <section class="panel">
@@ -1070,7 +1147,8 @@ function advanceReservationHtml(finalDraft) {
         ${r.errors.privacy ? `<p class="error">${r.errors.privacy}</p>` : ""}
       </section>
 
-      <button class="button red" data-submit ${appState.submitting ? "disabled" : ""}>${appState.submitting ? m.submitting : m.submit}</button>
+      ${partyWarn ? `<p class="error" style="margin:0">${m.partyMinWarning}</p>` : ""}
+      <button class="button red" data-submit ${submitDisabled ? "disabled" : ""}>${appState.submitting ? m.submitting : m.submit}</button>
       ${appState.submitError ? `<p class="error">${escapeHtml(appState.submitError)}</p>` : ""}
     </div>
     ${appState.modalOpen ? confirmModal(finalDraft) : ""}
@@ -1081,7 +1159,9 @@ function waitlistFormHtml() {
   const m = messages();
   const w = appState.waitlist || emptyWaitlist();
   const result = w.result;
-  const options = preferredTimeOptions();
+  const partySize = Number(w.partySize || 0);
+  const partyWarn = !partySize || partySize < 2;
+  const submitDisabled = appState.waitlistSubmitting || partyWarn;
   return `
     <div class="content-grid">
       <section class="panel">
@@ -1091,13 +1171,6 @@ function waitlistFormHtml() {
           ${waitlistField("waitlist-name", m.waitlistName, w.name, "waitlist-name")}
           ${waitlistField("waitlist-phone", m.waitlistPhone, w.phone, "waitlist-phone")}
           ${waitlistField("waitlist-party", m.waitlistPartySize, w.partySize, "waitlist-party", "number", "2")}
-          <div class="field">
-            <label for="waitlist-preferred">${m.waitlistPreferredTime}</label>
-            <select id="waitlist-preferred" data-waitlist-preferred>
-              <option value="">${m.waitlistNoPreference}</option>
-              ${options.map((option) => `<option value="${option.start}-${option.end}" ${w.preferredRange === `${option.start}-${option.end}` ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
-            </select>
-          </div>
         </div>
         ${w.errors.general ? `<p class="error">${w.errors.general}</p>` : ""}
       </section>
@@ -1113,7 +1186,8 @@ function waitlistFormHtml() {
         ${w.errors.privacy ? `<p class="error">${w.errors.privacy}</p>` : ""}
       </section>
 
-      <button class="button red" data-waitlist-submit ${appState.waitlistSubmitting ? "disabled" : ""}>${appState.waitlistSubmitting ? m.waitlistSubmitting : m.waitlistSubmit}</button>
+      ${partyWarn ? `<p class="error" style="margin:0">${m.validation.minPartyWaitlist}</p>` : ""}
+      <button class="button red" data-waitlist-submit ${submitDisabled ? "disabled" : ""}>${appState.waitlistSubmitting ? m.waitlistSubmitting : m.waitlistSubmit}</button>
       ${appState.waitlistSubmitError ? `<p class="error">${escapeHtml(appState.waitlistSubmitError)}</p>` : ""}
       ${result ? `<section class="panel waitlist-result">${waitlistResultHtml(result)}</section>` : ""}
     </div>
@@ -1153,16 +1227,31 @@ function reservationCompletePage() {
   `);
 }
 
-function guestCard(guest) {
+function representativeCard(guest) {
   const m = messages();
   const errors = appState.reservation.errors || {};
   return `
     <div class="guest-card" data-card-id="${guest.id}">
-      ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
-      ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
+      ${fieldHtml(m.representativeName, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
+      ${fieldHtml(m.representativePhone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
+    </div>
+  `;
+}
+
+function companionCard(guest) {
+  const m = messages();
+  const errors = appState.reservation.errors || {};
+  return `
+    <div class="guest-card" data-card-id="${guest.id}">
+      ${fieldHtml(m.companionName, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
       <button class="button small" data-delete="${guest.id}">${m.delete}</button>
     </div>
   `;
+}
+
+function guestCard(guest) {
+  // Backwards-compat helper: render as companion card.
+  return companionCard(guest);
 }
 
 function fieldHtml(label, field, id, value, error) {
@@ -1311,10 +1400,10 @@ function waitlistLookupFormHtml() {
     <div class="lookup-form">
       <div class="lookup-section">
         <h2>${m.lookupWalkinTab}</h2>
+        <p class="muted" style="margin:0 0 12px">${m.waitlistAutoRefreshHint}</p>
         <div class="form-grid lookup-guest-grid">
-          ${fieldPlain("waitlist-lookup-code", m.waitlistLookupCode, appState.waitlistLookupCode || "", "waitlist-lookup-code")}
-          ${fieldPlain("waitlist-lookup-phone", m.waitlistLookupPhone, appState.waitlistLookupPhone || "", "waitlist-lookup-phone")}
           ${fieldPlain("waitlist-lookup-name", m.waitlistLookupName, appState.waitlistLookupName || "", "waitlist-lookup-name")}
+          ${fieldPlain("waitlist-lookup-phone", m.waitlistLookupPhone, appState.waitlistLookupPhone || "", "waitlist-lookup-phone")}
         </div>
       </div>
       <button class="button primary" data-waitlist-lookup>${appState.waitlistLookupLoading ? m.waitlistLookupLoadingLabel : m.checkWaitlist}</button>
@@ -1386,16 +1475,43 @@ function bindEvents() {
     button.addEventListener("click", () => setLang(button.dataset.lang));
   });
 
+  // Stop pollers by default; per-route handlers below re-enable as needed.
+  stopAvailabilityPolling();
+  stopWaitlistPolling();
+
   if (appState.route === "/guest-reservation") {
     bindReservationModeEvents();
     if (appState.reservationMode === "walkin") {
       bindWaitlistEvents();
     } else {
       bindReservationEvents();
+      startAvailabilityPolling();
     }
     ensureAvailabilityLoaded();
   }
-  if (appState.route === "/reservation-lookup") bindLookupEvents();
+  if (appState.route === "/reservation-lookup") {
+    bindLookupEvents();
+    // Prefill waitlist lookup identity from localStorage if available.
+    try {
+      const raw = localStorage.getItem("kuba_waitlist_lookup");
+      if (raw) {
+        const saved = JSON.parse(raw);
+        if (saved && saved.phone && !appState.waitlistLookupPhone) {
+          appState.waitlistLookupName = saved.name || "";
+          appState.waitlistLookupPhone = formatPhone(saved.phone);
+          const nameEl = document.querySelector("[data-waitlist-lookup-name]");
+          const phoneEl = document.querySelector("[data-waitlist-lookup-phone]");
+          if (nameEl) nameEl.value = appState.waitlistLookupName;
+          if (phoneEl) phoneEl.value = appState.waitlistLookupPhone;
+          if (appState.lookupMode === "walkin" && !appState.waitlistLookupResult) {
+            // Trigger an initial lookup quietly.
+            runWaitlistLookup({ persist: false, silent: true });
+          }
+        }
+      }
+    } catch {}
+    if (appState.lookupMode === "walkin") startWaitlistPolling();
+  }
 }
 
 function bindReservationModeEvents() {
@@ -1412,7 +1528,7 @@ function bindReservationModeEvents() {
 function bindReservationEvents() {
   const r = appState.reservation;
   document.querySelector("[data-add-guest]")?.addEventListener("click", () => {
-    r.guests.push(emptyGuest());
+    r.guests.push(emptyCompanion());
     render();
   });
 
@@ -1569,11 +1685,7 @@ function bindWaitlistEvents() {
     ?.addEventListener("input", (event) => {
       w.partySize = event.target.value;
       delete w.errors.general;
-    });
-  document
-    .querySelector("[data-waitlist-preferred]")
-    ?.addEventListener("change", (event) => {
-      w.preferredRange = event.target.value;
+      render();
     });
   document
     .querySelector("[data-waitlist-privacy]")
@@ -1594,7 +1706,6 @@ function bindWaitlistEvents() {
         render();
         return;
       }
-      const range = parseRangeValue(w.preferredRange);
       const payload = {
         event_id: appState.eventId,
         name: w.name.trim(),
@@ -1603,10 +1714,6 @@ function bindWaitlistEvents() {
         privacy_consent: true,
         locale: appState.lang,
       };
-      if (range) {
-        payload.preferred_start_minute = range.start;
-        payload.preferred_end_minute = range.end;
-      }
       appState.waitlistSubmitting = true;
       appState.waitlistSubmitError = "";
       render();
@@ -1616,6 +1723,13 @@ function bindWaitlistEvents() {
           payload,
         );
         appState.waitlist.result = created;
+        // Persist lookup identity so the user can come back after refresh.
+        try {
+          localStorage.setItem(
+            "kuba_waitlist_lookup",
+            JSON.stringify({ name: w.name.trim(), phone: normalizePhone(w.phone) }),
+          );
+        } catch {}
       } catch (err) {
         appState.waitlistSubmitError =
           err.message || messages().waitlistSubmitError;
@@ -1755,11 +1869,6 @@ function bindLookupEvents() {
     });
 
   document
-    .querySelector("[data-waitlist-lookup-code]")
-    ?.addEventListener("input", (event) => {
-      appState.waitlistLookupCode = event.target.value;
-    });
-  document
     .querySelector("[data-waitlist-lookup-phone]")
     ?.addEventListener("input", (event) => {
       event.target.value = formatPhone(event.target.value);
@@ -1774,46 +1883,7 @@ function bindLookupEvents() {
   document
     .querySelector("[data-waitlist-lookup]")
     ?.addEventListener("click", async () => {
-      const m = messages();
-      const waitingCode = (appState.waitlistLookupCode || "").trim();
-      const phone = formatPhone(appState.waitlistLookupPhone || "");
-      const name = (appState.waitlistLookupName || "").trim();
-      appState.waitlistLookupResult = null;
-      appState.waitlistLookupMessage = "";
-      const payload = {};
-      if (waitingCode) {
-        payload.waiting_code = waitingCode;
-      } else if (phone) {
-        if (!validatePhone(phone)) {
-          appState.waitlistLookupMessage = m.validation.phone;
-          render();
-          return;
-        }
-        payload.phone = normalizePhone(phone);
-        if (name) payload.name = name;
-      } else {
-        appState.waitlistLookupMessage = m.waitlistLookupCodeOrPhone;
-        render();
-        return;
-      }
-      appState.waitlistLookupLoading = true;
-      render();
-      try {
-        const response = await apiPost(
-          "/public/pub-reservations/waitlist/lookup",
-          payload,
-        );
-        if (!response.found || !response.waitlist) {
-          appState.waitlistLookupMessage = m.waitlistLookupFail;
-        } else {
-          appState.waitlistLookupResult = response.waitlist;
-        }
-      } catch (err) {
-        appState.waitlistLookupMessage = err.message || m.waitlistLookupFail;
-      } finally {
-        appState.waitlistLookupLoading = false;
-        render();
-      }
+      await runWaitlistLookup({ persist: true });
     });
 
   document.querySelector("[data-lookup]")?.addEventListener("click", async () => {
@@ -2027,6 +2097,124 @@ function refreshAvailabilityForPartySize() {
   partySizeRefreshTimer = setTimeout(() => {
     loadAvailabilityForCurrentPartySize();
   }, 250);
+}
+
+// ---- Real-time polling ----
+let availabilityPollTimer = null;
+let waitlistPollTimer = null;
+
+function startAvailabilityPolling() {
+  stopAvailabilityPolling();
+  availabilityPollTimer = setInterval(() => {
+    if (appState.submitting) return;
+    if (appState.route !== "/guest-reservation") {
+      stopAvailabilityPolling();
+      return;
+    }
+    if (appState.reservationMode !== "advance") return;
+    refreshAvailabilityAndPreserveSelection();
+  }, 10000);
+}
+
+function stopAvailabilityPolling() {
+  if (availabilityPollTimer) {
+    clearInterval(availabilityPollTimer);
+    availabilityPollTimer = null;
+  }
+}
+
+async function refreshAvailabilityAndPreserveSelection() {
+  if (!appState.eventId) return;
+  const prevSelected =
+    (appState.reservation && [...appState.reservation.selectedTimeSlots]) || [];
+  try {
+    const data = await apiGet(
+      `/public/pub-reservations/events/${encodeURIComponent(appState.eventId)}/availability?party_size=${appState.availabilityPartySize || 1}`,
+    );
+    applyAvailability(data);
+    if (appState.reservation && prevSelected.length) {
+      const stillOk =
+        prevSelected.every((s) => timeSlots.includes(s) && !isSlotUnavailable(s));
+      if (!stillOk) {
+        appState.reservation.selectedTimeSlots = [];
+        appState.submitError = messages().availabilitySoldOutNotice;
+      }
+    }
+    render();
+  } catch {
+    // Silent — keep showing whatever we have until next tick.
+  }
+}
+
+function startWaitlistPolling() {
+  stopWaitlistPolling();
+  waitlistPollTimer = setInterval(() => {
+    if (appState.route !== "/reservation-lookup") {
+      stopWaitlistPolling();
+      return;
+    }
+    if (appState.lookupMode !== "walkin") return;
+    if (!appState.waitlistLookupPhone) return;
+    runWaitlistLookup({ persist: false, silent: true });
+  }, 10000);
+}
+
+function stopWaitlistPolling() {
+  if (waitlistPollTimer) {
+    clearInterval(waitlistPollTimer);
+    waitlistPollTimer = null;
+  }
+}
+
+async function runWaitlistLookup({ persist = false, silent = false } = {}) {
+  const m = messages();
+  const phoneRaw = formatPhone(appState.waitlistLookupPhone || "");
+  const name = (appState.waitlistLookupName || "").trim();
+  if (!phoneRaw || !name) {
+    if (!silent) {
+      appState.waitlistLookupMessage = m.waitlistLookupCodeOrPhone;
+      render();
+    }
+    return;
+  }
+  if (!validatePhone(phoneRaw)) {
+    if (!silent) {
+      appState.waitlistLookupMessage = m.validation.phone;
+      render();
+    }
+    return;
+  }
+  const payload = { phone: normalizePhone(phoneRaw), name };
+  if (!silent) {
+    appState.waitlistLookupResult = null;
+    appState.waitlistLookupMessage = "";
+    appState.waitlistLookupLoading = true;
+    render();
+  }
+  try {
+    const response = await apiPost(
+      "/public/pub-reservations/waitlist/lookup",
+      payload,
+    );
+    if (!response.found || !response.waitlist) {
+      if (!silent) appState.waitlistLookupMessage = m.waitlistLookupFail;
+    } else {
+      appState.waitlistLookupResult = response.waitlist;
+      if (persist) {
+        try {
+          localStorage.setItem(
+            "kuba_waitlist_lookup",
+            JSON.stringify({ name, phone: normalizePhone(phoneRaw) }),
+          );
+        } catch {}
+      }
+    }
+  } catch (err) {
+    if (!silent) appState.waitlistLookupMessage = err.message || m.waitlistLookupFail;
+  } finally {
+    if (!silent) appState.waitlistLookupLoading = false;
+    render();
+  }
 }
 
 bootstrapConfig().finally(() => render());
