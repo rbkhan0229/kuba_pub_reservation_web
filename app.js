@@ -1149,7 +1149,7 @@ function advanceReservationHtml(finalDraft) {
 
       ${partyWarn ? `<p class="error" style="margin:0">${m.partyMinWarning}</p>` : ""}
       <button class="button red" data-submit ${submitDisabled ? "disabled" : ""}>${appState.submitting ? m.submitting : m.submit}</button>
-      ${appState.submitError ? `<p class="error">${escapeHtml(appState.submitError)}</p>` : ""}
+      <div data-submit-error-slot>${appState.submitError ? `<p class="error">${escapeHtml(appState.submitError)}</p>` : ""}</div>
     </div>
     ${appState.modalOpen ? confirmModal(finalDraft) : ""}
   `;
@@ -2140,9 +2140,64 @@ async function refreshAvailabilityAndPreserveSelection() {
         appState.submitError = messages().availabilitySoldOutNotice;
       }
     }
-    render();
+    // Patch the DOM in place so user keystrokes / IME composition aren't lost.
+    patchAvailabilityDom();
   } catch {
     // Silent — keep showing whatever we have until next tick.
+  }
+}
+
+// Update slot buttons, advance group cards, and the submit error slot
+// without calling render(). Safe to call while inputs have focus / IME composition.
+function patchAvailabilityDom() {
+  const root = document.getElementById("app");
+  if (!root) return;
+  const m = messages();
+  const selectedSlots =
+    (appState.reservation && appState.reservation.selectedTimeSlots) || [];
+
+  root.querySelectorAll(".slot-button[data-slot]").forEach((btn) => {
+    const slot = btn.getAttribute("data-slot");
+    const block = blockMap[slot] || {};
+    const isUnavailable = isSlotUnavailable(slot);
+    const remaining =
+      typeof block.remaining_tables === "number" ? block.remaining_tables : null;
+    btn.classList.toggle("unavailable", isUnavailable);
+    btn.classList.toggle("selected", selectedSlots.includes(slot));
+    if (isUnavailable) btn.setAttribute("disabled", "");
+    else btn.removeAttribute("disabled");
+    const remEl = btn.querySelector(".slot-remaining");
+    if (remEl) {
+      remEl.textContent = isUnavailable
+        ? m.soldOutBadge
+        : `${remaining !== null ? remaining : "?"}T`;
+    }
+  });
+
+  root.querySelectorAll(".advance-option-card[data-advance-group]").forEach((btn) => {
+    const key = btn.getAttribute("data-advance-group");
+    const group = EARLY_GROUPS.find((g) => g.key === key);
+    if (!group) return;
+    const remaining = rangeRemaining(group.start, group.end);
+    const unavailable = remaining <= 0;
+    const selected = selectedRangeMatches(group.start, group.end);
+    btn.classList.toggle("unavailable", unavailable);
+    btn.classList.toggle("selected", selected);
+    if (unavailable) btn.setAttribute("disabled", "");
+    else btn.removeAttribute("disabled");
+    const remEl = btn.querySelector(".advance-option-remaining");
+    if (remEl) {
+      remEl.textContent = unavailable
+        ? m.soldOutBadge
+        : m.remainingAdvance(remaining);
+    }
+  });
+
+  const errSlot = root.querySelector("[data-submit-error-slot]");
+  if (errSlot) {
+    errSlot.innerHTML = appState.submitError
+      ? `<p class="error">${escapeHtml(appState.submitError)}</p>`
+      : "";
   }
 }
 
