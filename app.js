@@ -1,3 +1,15 @@
+/**
+ * KUBA Festival Pub reservation web — non-ClubX guest reservations only.
+ *
+ * Reservation policy:
+ *   - 18:00–19:30: fixed 90-minute block (cannot split 30-min sub-slots)
+ *   - 19:30–21:00: fixed 90-minute block (cannot split sub-slots)
+ *   - 21:00+:     flexible 30-minute continuous selection, 60–90 minutes total
+ *   - Minimum party size: 2 (both advance reservation and walk-in waitlist)
+ *
+ * Alcohol policy: alcohol is NOT sold on-site. Guests must bring their own.
+ */
+
 const LAST_SUBMITTED_KEY = "kuba_last_submitted_reservation_code";
 
 const RUNTIME_CONFIG =
@@ -19,7 +31,7 @@ async function apiRequest(path, { method = "GET", body } = {}) {
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  } catch (err) {
+  } catch {
     throw new Error(
       appState && appState.lang === "en"
         ? "Network error. Please try again."
@@ -59,15 +71,12 @@ function apiPost(path, body) {
 
 function normalizePath(path) {
   if (!path) return "/";
-
   let normalized = String(path).trim().split("?")[0].split("#")[0] || "/";
   if (!normalized.startsWith("/")) normalized = `/${normalized}`;
   normalized = normalized.replace(/\/index\.html$/, "/").replace(/\/+/g, "/");
-
   if (normalized.length > 1 && normalized.endsWith("/")) {
     normalized = normalized.slice(0, -1);
   }
-
   return normalized || "/";
 }
 
@@ -83,9 +92,7 @@ const appState = {
   lookupMessage: "",
   waitlistLookupMessage: "",
   modalOpen: false,
-  androidNotice: "",
   submitted: null,
-  // Backend-driven configuration / state
   configLoaded: false,
   configError: "",
   eventId: null,
@@ -111,15 +118,6 @@ let timeSlots = [];
 let blockMap = {}; // label -> { id, start_minute, end_minute, status, remaining_tables }
 
 const emptyGuest = () => ({ id: crypto.randomUUID(), name: "", phone: "" });
-const emptyClubXGuest = () => ({
-  id: crypto.randomUUID(),
-  query: "",
-  results: [],
-  searching: false,
-  searchError: "",
-  selectedUser: null,
-  searchToken: 0,
-});
 
 const emptyWaitlist = () => ({
   name: "",
@@ -131,55 +129,77 @@ const emptyWaitlist = () => ({
   result: null,
 });
 
+// ---- Early-time grouping (Task 4) ----
+// Clicking any sub-label selects the whole group; partial selection is forbidden.
+const EARLY_GROUPS = [
+  {
+    key: "early-1800-1930",
+    start: 1080,
+    end: 1170,
+    labels: ["18:00", "18:30", "19:00"],
+    display: "18:00 - 19:30",
+  },
+  {
+    key: "early-1930-2100",
+    start: 1170,
+    end: 1260,
+    labels: ["19:30", "20:00", "20:30"],
+    display: "19:30 - 21:00",
+  },
+];
+
+function getEarlyGroupForLabel(label) {
+  return EARLY_GROUPS.find((g) => g.labels.includes(label)) || null;
+}
+
+function getEarlyGroupForRange(startMinute, endMinute) {
+  return (
+    EARLY_GROUPS.find((g) => g.start === startMinute && g.end === endMinute) ||
+    null
+  );
+}
+
 const t = {
   ko: {
     brand: "KUBA 대동제 주점",
     brandSub: "예약 웹사이트",
     home: "Home",
     faq: "FAQ",
-    lookup: "예약조회",
+    lookup: "예약/대기 조회",
     checkReservation: "예약 조회하기",
-    posterKicker: "Festival Pub Benefit",
-    posterTitle: "ClubX<br>예약 혜택 이벤트",
+    posterKicker: "Festival Pub",
+    posterTitle: "KUBA 대동제 주점 예약",
     posterBody: [
-      "KUBA 대동제 주점에서는 현장 주류 판매가 불가능하여, 기본적으로 손님이 직접 주류를 구매해 오셔야 합니다.",
-      "하지만 ClubX 앱을 통해 예약한 손님에게는 소주 또는 맥주를 무료로 증정합니다.",
-      "테이블 전원이 ClubX를 통해 예약한 팀에게는 술을 시원하게 보관할 수 있는 아이스 버켓도 함께 제공합니다.",
+      "본 주점은 사전예약과 현장대기를 운영합니다. 사전예약은 정해진 시간대에 테이블을 확보하는 방식이며, 현장대기는 대기번호 발급 방식입니다.",
     ],
     notice:
-      "주의사항: 현장 상황에 따라 소주 또는 맥주 중 일부 품목이 먼저 품절될 수 있습니다.",
-    startTitle: "예약 방법 선택",
+      "주의사항: 본 주점에서는 주류를 판매하지 않습니다. 주류는 직접 구매해 오셔야 합니다.",
+    startTitle: "예약하기",
     startCopy:
-      "혜택 없이 빠르게 예약하거나, ClubX 앱으로 예약하고 이벤트 혜택을 받을 수 있습니다.",
-    guestCta: "혜택 받지 않고 비회원 예약",
-    clubxCta: "ClubX로 예약하고 혜택 받기",
-    clubxTitle: "ClubX 앱으로 예약하기",
-    clubxDesc: "사용 중인 기기를 선택하면 앱 다운로드 페이지로 이동합니다.",
-    ios: "iOS - CLUB X: Open Square",
-    android: "Android",
-    androidNotice: "Android 버전은 현재 준비 중입니다.",
+      "사전예약 또는 현장대기 중 원하는 방식을 선택해 주세요. 사전예약은 정해진 시간대에 테이블을 보장하고, 현장대기는 대기번호만 발급됩니다.",
+    primaryCta: "예약하기",
+    secondaryCta: "예약/대기 조회",
     backHome: "메인으로 돌아가기",
-    guestTitle: "비회원 예약",
+    guestTitle: "주점 예약",
     guestGuide:
-      "ClubX 혜택 없이 예약하거나, 일부 일행만 ClubX로 예약한 혼합 그룹을 위한 신청 페이지입니다.",
-    nonClubxSection: "비회원 인원",
-    addGuest: "비회원 인원 추가",
-    clubxQuestion: "ClubX를 통해 예약한 인원이 있나요?",
-    clubxSection: "ClubX 예약 인원",
-    addClubx: "ClubX 예약 인원 추가",
+      "예약자 본인과 동반 인원의 이름·연락처를 입력해주세요. 최소 2명부터 예약 가능합니다.",
+    nonClubxSection: "예약 인원",
+    addGuest: "인원 추가",
     name: "이름",
     phone: "연락처",
-    username: "ClubX Username",
     delete: "삭제",
     total: (n) => `총 인원: ${n}명`,
     timeTitle: "예약 시간 선택",
-    timeHelp: "30분 단위로 연속된 시간을 선택해주세요. 최소 1시간, 최대 1시간 30분까지 가능합니다.",
+    timeHelp:
+      "18:00~19:30, 19:30~21:00 시간대는 1시간 30분 단위로만 예약됩니다. 해당 구간의 일부 시간만 선택할 수 없습니다. 21:00 이후부터는 30분 단위로 연속 선택할 수 있으며, 최소 1시간, 최대 1시간 30분까지 가능합니다.",
     advanceLabel: "사전예약",
+    fixedBlockTag: "1시간 30분 고정",
     walkinAvailable: "현장 대기번호 발급 가능",
     soldOutBadge: "마감",
     openBadge: "예약 가능",
     walkinTitle: "현장 대기번호 발급",
-    walkinDesc: "사전예약 테이블이 모두 마감된 경우, 현장 대기번호를 발급받아 현장 입장 안내를 받을 수 있습니다.",
+    walkinDesc:
+      "사전예약 테이블이 모두 마감된 경우, 현장 대기번호를 발급받아 현장 입장 안내를 받을 수 있습니다.",
     walkinGoto: "현장 대기번호 발급하기",
     waitlistMyNumber: "내 대기번호",
     waitlistCurrentCalled: "현재 호출 번호",
@@ -201,17 +221,18 @@ const t = {
     newReservation: "새 예약 신청하기",
     reservationId: "예약 ID",
     submittedAt: "신청 완료 시간",
-    nonClubxGuests: "비회원 인원 정보",
-    clubxGuests: "ClubX 예약 인원 정보",
+    guestsLabel: "예약 인원",
     noGuests: "입력된 인원이 없습니다.",
     validation: {
       name: "이름에는 숫자나 특수문자를 사용할 수 없습니다.",
       phone: "올바른 연락처 형식을 입력해주세요. 예: 010-1234-5678",
-      username: "ClubX Username을 입력해주세요.",
       oneGuest: "최소 1명 이상 입력해주세요.",
       minParty: "예약은 최소 2명부터 가능합니다.",
+      minPartyWaitlist: "현장대기는 최소 2명부터 가능합니다.",
       timeShort: "이용시간은 최소 1시간 이상 선택해야 합니다.",
       timeLong: "이용시간은 최대 1시간 30분까지 선택할 수 있습니다.",
+      timeGroupFixed:
+        "18:00~21:00 이전 시간대는 지정된 1시간 30분 단위로만 예약할 수 있습니다.",
       privacy: "개인정보 활용 동의가 필요합니다.",
     },
     selfCancelButton: "예약 취소",
@@ -219,13 +240,10 @@ const t = {
     selfCancelSuccess: "예약이 취소되었습니다.",
     selfCancelFail: "예약 취소에 실패했습니다.",
     selfCancelAlreadyDone: "이미 취소된 예약입니다.",
-    lookupTitle: "예약조회",
+    lookupTitle: "예약/대기 조회",
     lookupDesc:
-      "비회원은 이름과 연락처로, ClubX 예약 인원은 ClubX Username으로 예약 내용을 확인할 수 있습니다.",
-    lookupGuestGroup: "비회원 예약 조회",
-    lookupClubxGroup: "ClubX 예약 조회",
-    lookupOr: "또는",
-    lookupUsername: "ClubX Username으로 조회",
+      "예약자는 이름과 연락처로 예약 내용을 확인할 수 있습니다. 현장대기는 대기 코드 또는 전화번호로 조회할 수 있습니다.",
+    lookupGuestGroup: "예약 조회",
     lookupFail: "일치하는 예약 정보를 찾을 수 없습니다.",
     privacyTitle: "개인정보 활용 동의",
     backReservation: "예약 페이지로 돌아가기",
@@ -236,7 +254,6 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
 1. 수집 항목
 - 이름
 - 연락처
-- ClubX Username: ClubX 예약 인원이 있는 경우에만 수집
 
 2. 수집 및 이용 목적
 - 예약자 본인 확인
@@ -253,28 +270,35 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
 5. 안내
 수집된 개인정보는 KUBA 대동제 주점 예약 운영 목적 외에는 사용하지 않습니다.`,
     faqTitle: "FAQ",
-    faqQ: "Q. 일행 중 일부만 ClubX를 통해 예약하고 싶으면 어떻게 하나요?",
-    faqA: "A. ClubX 사용자들끼리만 친구 태그를 통해 예약한 후, 비회원 예약 페이지에서 `ClubX를 통해 예약한 일행이 있나요?`에 예를 체크하고 ClubX Username을 기재해주시면 됩니다.",
-    clubxSearchPlaceholder: "이름 또는 ClubX Username을 입력하세요 (2자 이상)",
-    clubxSearchHint: "최소 2자 이상 입력 후 후보에서 선택해주세요.",
-    clubxSearchEmpty: "일치하는 사용자가 없습니다.",
-    clubxSearchError: "검색 중 오류가 발생했습니다.",
-    clubxSelected: "선택됨",
-    clubxChange: "변경",
-    selectedRequired: "목록에서 ClubX 사용자를 선택해주세요.",
+    faqList: [
+      {
+        q: "Q. 주류는 어떻게 준비하나요?",
+        a: "A. 본 주점에서는 주류를 판매하지 않습니다. 손님께서 직접 구매해 오셔야 합니다.",
+      },
+      {
+        q: "Q. 사전예약과 현장대기는 어떻게 다른가요?",
+        a: "A. 사전예약은 정해진 시간대(18:00–19:30, 19:30–21:00, 21:00 이후 30분 단위)에 테이블을 확보합니다. 현장대기는 대기번호만 발급되며 입장이 보장되지 않습니다.",
+      },
+      {
+        q: "Q. 최소 인원은 몇 명인가요?",
+        a: "A. 사전예약과 현장대기 모두 최소 2명부터 신청 가능합니다.",
+      },
+    ],
     availabilityLoading: "예약 가능 시간을 불러오는 중...",
-    availabilityError: "예약 가능 시간을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+    availabilityError:
+      "예약 가능 시간을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
     soldOut: "선택한 시간대가 마감되었습니다. 다른 시간을 선택해주세요.",
     submitting: "예약 신청 중...",
     submitError: "예약 신청에 실패했습니다.",
     completeRefreshHint:
       "예약 정보가 사라졌다면 예약조회 페이지에서 이름/연락처 또는 예약번호로 다시 조회해주세요.",
-    configError: "예약 서비스 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
+    configError:
+      "예약 서비스 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
     noWindows: "예약 가능한 시간이 아직 설정되지 않았습니다.",
     advanceTab: "사전예약",
     walkinTab: "현장대기",
-    groupedAdvanceTitle: "빠른 사전예약 시간",
-    flexibleAdvanceTitle: "21:00 이후 30분 단위 선택",
+    groupedAdvanceTitle: "정해진 시간대 (1시간 30분 고정)",
+    flexibleAdvanceTitle: "21:00 이후 (30분 단위)",
     remainingAdvance: (n) => `남은 사전예약: ${n}테이블`,
     advanceClosedTitle: "사전예약이 마감되었습니다.",
     advanceClosedBody: "현장대기를 이용해주세요.",
@@ -285,7 +309,8 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     waitlistNoPreference: "선호 시간 없음",
     waitlistNotGuaranteed:
       "현장대기는 입장을 보장하지 않습니다. 현장 상황과 회전 속도에 따라 입장이 어려울 수 있습니다.",
-    waitlistPrivacyAgree: "현장대기 운영을 위한 개인정보 활용에 동의합니다.",
+    waitlistPrivacyAgree:
+      "현장대기 운영을 위한 개인정보 활용에 동의합니다.",
     waitlistSubmit: "대기번호 발급하기",
     waitlistSubmitting: "대기번호 발급 중...",
     waitlistSubmitError: "대기번호 발급에 실패했습니다.",
@@ -319,50 +344,41 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     brandSub: "Reservation Website",
     home: "Home",
     faq: "FAQ",
-    lookup: "Check Reservation",
+    lookup: "Check Reservation / Waitlist",
     checkReservation: "Check Reservation",
-    posterKicker: "Festival Pub Benefit",
-    posterTitle: "ClubX Reservation Benefit Event",
+    posterKicker: "Festival Pub",
+    posterTitle: "KUBA Festival Pub Reservation",
     posterBody: [
-      "At the KUBA Festival Pub, alcoholic beverages cannot be sold on-site, so guests are normally required to bring their own drinks.",
-      "However, guests who reserve through the ClubX app will receive free soju or beer.",
-      "If every person at the table reserves through ClubX, the team will also receive an ice bucket to keep drinks cold.",
+      "This pub supports advance reservations and walk-in waitlist tickets. Advance reservations secure a table for the selected time, while walk-in waitlist tickets only provide a queue number.",
     ],
     notice:
-      "Notice: Depending on on-site availability, either soju or beer may run out first.",
-    startTitle: "Choose Your Reservation Path",
+      "Notice: Alcohol is not sold at this pub. Guests must bring their own alcohol.",
+    startTitle: "Reserve",
     startCopy:
-      "Make a quick guest reservation without benefits, or reserve through ClubX to receive event benefits.",
-    guestCta: "Guest Reservation Without Benefits",
-    clubxCta: "Reserve with ClubX & Get Benefits",
-    clubxTitle: "Reserve through the ClubX App",
-    clubxDesc: "Select your device to go to the app download page.",
-    ios: "iOS - CLUB X: Open Square",
-    android: "Android",
-    androidNotice: "The Android version is currently in development.",
+      "Choose advance reservation for a guaranteed table at a fixed time, or walk-in waitlist to receive only a queue number.",
+    primaryCta: "Reserve",
+    secondaryCta: "Check Reservation / Waitlist",
     backHome: "Back to Home",
-    guestTitle: "Guest Reservation",
+    guestTitle: "Pub Reservation",
     guestGuide:
-      "This page is for Non-ClubX guests and mixed groups where only some guests reserved through ClubX.",
-    nonClubxSection: "Non-ClubX Guests",
-    addGuest: "Add Non-ClubX Guest",
-    clubxQuestion: "Are there guests who reserved through ClubX?",
-    clubxSection: "ClubX Guests",
-    addClubx: "Add ClubX Guest",
+      "Enter the lead booker and every accompanying guest. Reservations require at least 2 guests.",
+    nonClubxSection: "Guests",
+    addGuest: "Add Guest",
     name: "Name",
     phone: "Phone Number",
-    username: "ClubX Username",
     delete: "Delete",
     total: (n) => `Total Guests: ${n}`,
     timeTitle: "Select Reservation Time",
     timeHelp:
-      "Select continuous 30-minute slots. Reservations must be 1 hour to 1 hour 30 minutes.",
+      "The 18:00–19:30 and 19:30–21:00 periods are fixed 90-minute reservation blocks. Partial selection within these periods is not allowed. After 21:00, you may select continuous 30-minute slots, from 1 hour to 1 hour 30 minutes.",
     advanceLabel: "Advance",
+    fixedBlockTag: "Fixed 90 min",
     walkinAvailable: "Walk-in waitlist available",
     soldOutBadge: "Sold out",
     openBadge: "Available",
     walkinTitle: "Walk-in Waitlist",
-    walkinDesc: "When advance tables are sold out you can take a walk-in waitlist number.",
+    walkinDesc:
+      "When advance tables are sold out you can take a walk-in waitlist number.",
     walkinGoto: "Get a walk-in number",
     waitlistMyNumber: "My number",
     waitlistCurrentCalled: "Now calling",
@@ -385,17 +401,18 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     newReservation: "Submit Another Reservation",
     reservationId: "Reservation ID",
     submittedAt: "Submitted At",
-    nonClubxGuests: "Non-ClubX Guest Information",
-    clubxGuests: "ClubX Guest Information",
+    guestsLabel: "Guests",
     noGuests: "No guests entered.",
     validation: {
       name: "Name cannot contain numbers or special characters.",
       phone: "Please enter a valid phone number. Example: 010-1234-5678",
-      username: "Please enter a ClubX Username.",
       oneGuest: "Please enter at least one guest.",
       minParty: "Reservations require at least 2 guests.",
+      minPartyWaitlist: "Walk-in waitlist requires at least 2 guests.",
       timeShort: "Please select at least 1 hour.",
       timeLong: "Please select up to 1 hour 30 minutes.",
+      timeGroupFixed:
+        "Early reservation periods must be selected as fixed 90-minute blocks.",
       privacy: "Privacy consent is required.",
     },
     selfCancelButton: "Cancel Reservation",
@@ -403,13 +420,10 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     selfCancelSuccess: "Your reservation has been cancelled.",
     selfCancelFail: "Failed to cancel the reservation.",
     selfCancelAlreadyDone: "This reservation has already been cancelled.",
-    lookupTitle: "Check Reservation",
+    lookupTitle: "Check Reservation / Waitlist",
     lookupDesc:
-      "Non-ClubX guests can search by name and phone number. ClubX guests can search by ClubX Username.",
-    lookupGuestGroup: "Guest Reservation Lookup",
-    lookupClubxGroup: "ClubX Reservation Lookup",
-    lookupOr: "OR",
-    lookupUsername: "Search by ClubX Username",
+      "Guests can check their reservation using their name and phone number. Walk-in waitlist tickets can be checked with the waitlist code or phone number.",
+    lookupGuestGroup: "Reservation Lookup",
     lookupFail: "No matching reservation was found.",
     privacyTitle: "Privacy Consent",
     backReservation: "Back to Reservation",
@@ -420,7 +434,6 @@ For the operation of the KUBA Festival Pub reservation system, we collect and us
 1. Information Collected
 - Name
 - Phone number
-- ClubX Username: collected only if there are guests who reserved through ClubX
 
 2. Purpose of Collection and Use
 - To verify the reservation holder
@@ -437,19 +450,23 @@ You may refuse to provide consent. However, if you do not consent, reservation s
 5. Notice
 Collected personal information will not be used for purposes other than operating the KUBA Festival Pub reservation system.`,
     faqTitle: "FAQ",
-    faqQ: "Q. What should I do if only some members of my group want to reserve through ClubX?",
-    faqA: "A. ClubX users can reserve together by tagging each other as friends in the app. Then, on the guest reservation page, check `Are there guests who reserved through ClubX?` and enter their ClubX Username.",
-    clubxSearchPlaceholder: "Type a legal name or ClubX username (min 2 chars)",
-    clubxSearchHint: "Type at least 2 characters and pick a user from the list.",
-    clubxSearchEmpty: "No matching users found.",
-    clubxSearchError: "Search failed.",
-    clubxSelected: "Selected",
-    clubxChange: "Change",
-    selectedRequired: "Please select a ClubX user from the list.",
+    faqList: [
+      {
+        q: "Q. How is alcohol handled?",
+        a: "A. Alcohol is not sold at this pub. Guests must bring their own alcohol.",
+      },
+      {
+        q: "Q. What is the difference between advance reservation and walk-in waitlist?",
+        a: "A. Advance reservation secures a table for the selected time (18:00–19:30, 19:30–21:00, or 30-minute slots after 21:00). Walk-in waitlist only issues a queue number and does not guarantee entry.",
+      },
+      {
+        q: "Q. What is the minimum party size?",
+        a: "A. Both advance reservations and walk-in waitlist tickets require at least 2 guests.",
+      },
+    ],
     availabilityLoading: "Loading available time slots...",
     availabilityError: "Failed to load availability. Please try again.",
-    soldOut:
-      "The selected time was just sold out. Please pick another time.",
+    soldOut: "The selected time was just sold out. Please pick another time.",
     submitting: "Submitting reservation...",
     submitError: "Reservation submission failed.",
     completeRefreshHint:
@@ -458,8 +475,8 @@ Collected personal information will not be used for purposes other than operatin
     noWindows: "Reservation time slots are not configured yet.",
     advanceTab: "Advance Reservation",
     walkinTab: "Walk-in Waitlist",
-    groupedAdvanceTitle: "Quick advance reservation times",
-    flexibleAdvanceTitle: "30-minute selection after 21:00",
+    groupedAdvanceTitle: "Fixed time blocks (90 min)",
+    flexibleAdvanceTitle: "After 21:00 (30-minute slots)",
     remainingAdvance: (n) => `Advance remaining: ${n} tables`,
     advanceClosedTitle: "Advance reservation is closed.",
     advanceClosedBody: "Please use the walk-in waitlist.",
@@ -502,17 +519,9 @@ Collected personal information will not be used for purposes other than operatin
   },
 };
 
-const FALLBACK_TIME_SLOTS = [
-  "18:00", "18:30", "19:00", "19:30", "20:00", "20:30",
-  "21:00", "21:30", "22:00", "22:30", "23:00", "23:30",
-  "00:00", "00:30", "01:00",
-];
-
 function initReservation() {
   appState.reservation = {
-    guests: [emptyGuest()],
-    hasClubXGuests: false,
-    clubxGuests: [],
+    guests: [emptyGuest(), emptyGuest()],
     selectedTimeSlots: [],
     privacyConsent: false,
     errors: {},
@@ -553,13 +562,12 @@ function setLang(lang) {
 }
 
 function formatPhone(value) {
-  const digits = value.replace(/\D/g, "").slice(0, 11);
+  const digits = String(value || "").replace(/\D/g, "").slice(0, 11);
   if (digits.length <= 3) return digits;
   if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
 }
 
-// Display a phone value as-is when it's already masked (contains *).
 function displayPhone(value) {
   if (!value) return "";
   const str = String(value);
@@ -568,54 +576,31 @@ function displayPhone(value) {
 }
 
 function normalizePhone(value) {
-  return value.replace(/\D/g, "");
+  return String(value || "").replace(/\D/g, "");
 }
 
 function validateName(name) {
-  return /^[A-Za-z가-힣\s]{1,}$/.test(name.trim());
+  return /^[A-Za-z가-힣\s]{1,}$/.test(String(name || "").trim());
 }
 
 function validatePhone(phone) {
   return /^010-\d{4}-\d{4}$/.test(formatPhone(phone));
 }
 
-function validateUsername(username) {
-  return username.trim().length >= 2;
-}
-
 function hasGuestInput(guest) {
-  return Boolean(guest.name.trim() || guest.phone.trim());
+  return Boolean((guest.name || "").trim() || (guest.phone || "").trim());
 }
 
 function isGuestComplete(guest) {
   return validateName(guest.name) && validatePhone(guest.phone);
 }
 
-function hasClubXGuestInput(guest) {
-  return Boolean(
-    (guest.query && guest.query.trim()) ||
-      guest.selectedUser ||
-      (guest.clubxUsername && guest.clubxUsername.trim()),
-  );
-}
-
-function isClubXGuestComplete(guest) {
-  return Boolean(guest.selectedUser && guest.selectedUser.user_id);
-}
-
 function completedGuests(reservation) {
   return reservation.guests.filter(isGuestComplete);
 }
 
-function completedClubXGuests(reservation) {
-  return reservation.clubxGuests.filter(isClubXGuestComplete);
-}
-
 function completedGuestCount(reservation) {
-  return (
-    completedGuests(reservation).length +
-    completedClubXGuests(reservation).length
-  );
+  return completedGuests(reservation).length;
 }
 
 function updateTotalCountDom() {
@@ -649,26 +634,16 @@ function isSlotUnavailable(label) {
   return block.status !== "available";
 }
 
-function getSavedReservations() {
-  // Legacy localStorage cache is no longer authoritative. Returned only for
-  // backwards compatibility with any code path still calling it.
-  try {
-    return JSON.parse(localStorage.getItem("kuba_pub_reservations") || "[]");
-  } catch {
-    return [];
-  }
-}
-
 function timeRange(slots) {
-  if (!slots.length) return messages().noTime;
+  if (!slots || !slots.length) return messages().noTime;
   const first = blockMap[slots[0]];
   const last = blockMap[slots[slots.length - 1]];
   if (first && last) {
+    // Early grouped block → show the canonical group label
+    const group = getEarlyGroupForRange(first.start_minute, last.end_minute);
+    if (group) return group.display;
     const startLabel = first.start_label || minuteToLabel(first.start_minute);
     const endLabel = last.end_label || minuteToLabel(last.end_minute);
-    if (first.window_label) {
-      return `${first.window_label} (${startLabel} - ${endLabel})`;
-    }
     return `${startLabel} - ${endLabel}`;
   }
   return slots.join(", ");
@@ -691,11 +666,6 @@ function minuteToLabel(totalMinutes) {
   const mm = m % 60;
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
-
-const ADVANCE_GROUPS = [
-  { id: "early", label: "18:00 - 19:30", start: 1080, end: 1170 },
-  { id: "prime", label: "19:30 - 21:00", start: 1170, end: 1260 },
-];
 
 function blocksInRange(startMinute, endMinute) {
   return timeSlots
@@ -748,7 +718,12 @@ function selectedRangeMatches(startMinute, endMinute) {
 }
 
 function preferredTimeOptions() {
-  const options = [...ADVANCE_GROUPS];
+  const options = EARLY_GROUPS.map((g) => ({
+    id: g.key,
+    label: g.display,
+    start: g.start,
+    end: g.end,
+  }));
   const starts = blocksInRange(1260, 2880).map((block) => block.start_minute);
   starts.forEach((start) => {
     [60, 90].forEach((duration) => {
@@ -792,26 +767,51 @@ function validateReservation() {
       errors[`phone-${guest.id}`] = m.validation.phone;
   });
 
-  r.clubxGuests.forEach((guest) => {
-    if (!isClubXGuestComplete(guest)) {
-      errors[`username-${guest.id}`] = m.selectedRequired;
-    }
-  });
-
   const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
   else if (total < 2) errors.general = m.validation.minParty;
+
   if (isAdvanceClosed()) errors.time = m.advanceClosedTitle;
-  const minSlots = getMinSlotCount();
-  const maxSlots = getMaxSlotCount();
-  if (r.selectedTimeSlots.length < minSlots) errors.time = m.validation.timeShort;
-  if (r.selectedTimeSlots.length > maxSlots) errors.time = m.validation.timeLong;
-  const selectedIndexes = r.selectedTimeSlots.map((slot) => timeSlots.indexOf(slot));
-  const hasGap = selectedIndexes.some(
-    (index, position) =>
-      index < 0 || (position > 0 && index !== selectedIndexes[position - 1] + 1),
-  );
-  if (r.selectedTimeSlots.length && hasGap) errors.time = m.validation.timeShort;
+
+  // Time validation (Task 6) — early group rules first.
+  const selected = r.selectedTimeSlots;
+  if (selected.length) {
+    const touchedEarlyGroups = EARLY_GROUPS.filter((g) =>
+      selected.some((s) => g.labels.includes(s)),
+    );
+    const hasFlexible = selected.some((s) => {
+      const block = blockMap[s];
+      return block && block.start_minute >= 1260;
+    });
+    if (touchedEarlyGroups.length > 1) {
+      errors.time = m.validation.timeGroupFixed;
+    } else if (touchedEarlyGroups.length === 1) {
+      const group = touchedEarlyGroups[0];
+      const exact =
+        selected.length === group.labels.length &&
+        group.labels.every((label) => selected.includes(label));
+      if (!exact || hasFlexible) {
+        errors.time = m.validation.timeGroupFixed;
+      }
+    } else {
+      // Flexible-only continuous range
+      const minSlots = getMinSlotCount();
+      const maxSlots = getMaxSlotCount();
+      if (selected.length < minSlots) errors.time = m.validation.timeShort;
+      else if (selected.length > maxSlots) errors.time = m.validation.timeLong;
+      else {
+        const indexes = selected.map((slot) => timeSlots.indexOf(slot));
+        const hasGap = indexes.some(
+          (idx, pos) =>
+            idx < 0 || (pos > 0 && idx !== indexes[pos - 1] + 1),
+        );
+        if (hasGap) errors.time = m.validation.timeShort;
+      }
+    }
+  } else {
+    errors.time = m.validation.timeShort;
+  }
+
   if (!r.privacyConsent) errors.privacy = m.validation.privacy;
 
   r.errors = errors;
@@ -821,20 +821,13 @@ function validateReservation() {
 function createFinalReservation() {
   const r = appState.reservation;
   const guests = completedGuests(r);
-  const clubxGuests = completedClubXGuests(r);
   return {
     submittedAt: new Date().toLocaleString(
       appState.lang === "ko" ? "ko-KR" : "en-US",
     ),
     guests: copy(guests),
-    hasClubXGuests: r.hasClubXGuests,
-    clubxGuests: clubxGuests.map((g) => ({
-      id: g.id,
-      clubxUsername: g.selectedUser ? g.selectedUser.username : "",
-      displayName: g.selectedUser ? g.selectedUser.display_name : "",
-    })),
     selectedTimeSlots: [...r.selectedTimeSlots],
-    totalGuestCount: guests.length + clubxGuests.length,
+    totalGuestCount: guests.length,
     privacyConsent: r.privacyConsent,
   };
 }
@@ -842,7 +835,6 @@ function createFinalReservation() {
 function buildReservationPayload() {
   const r = appState.reservation;
   const guests = completedGuests(r);
-  const clubxGuests = completedClubXGuests(r);
   const first = blockMap[r.selectedTimeSlots[0]];
   const last = blockMap[r.selectedTimeSlots[r.selectedTimeSlots.length - 1]];
   if (!first || !last || isSlotUnavailable(r.selectedTimeSlots[0])) {
@@ -856,9 +848,7 @@ function buildReservationPayload() {
       name: g.name.trim(),
       phone: normalizePhone(g.phone),
     })),
-    clubx_guests: clubxGuests.map((g) => ({
-      user_id: g.selectedUser.user_id,
-    })),
+    clubx_guests: [], // kept for backend compatibility; always empty
     privacy_consent: true,
     locale: appState.lang,
   };
@@ -866,43 +856,32 @@ function buildReservationPayload() {
 
 function summaryHtml(reservation) {
   const m = messages();
-  const guestRows = reservation.guests && reservation.guests.length
-    ? reservation.guests
-        .map(
-          (g) =>
-            `<li>${escapeHtml(g.name || "")}${g.phone ? ` · ${escapeHtml(displayPhone(g.phone))}` : ""}</li>`,
-        )
-        .join("")
-    : `<li>${m.noGuests}</li>`;
-  const clubxRows = reservation.clubxGuests && reservation.clubxGuests.length
-    ? reservation.clubxGuests
-        .map((g) => {
-          const display = g.displayName || g.display_name || "";
-          const username = g.clubxUsername || g.username || "";
-          const label = display && username
-            ? `${escapeHtml(display)} (@${escapeHtml(username)})`
-            : escapeHtml(display || username);
-          return `<li>${label}</li>`;
-        })
-        .join("")
-    : `<li>${m.noGuests}</li>`;
+  const guestRows =
+    reservation.guests && reservation.guests.length
+      ? reservation.guests
+          .map(
+            (g) =>
+              `<li>${escapeHtml(g.name || "")}${g.phone ? ` · ${escapeHtml(displayPhone(g.phone))}` : ""}</li>`,
+          )
+          .join("")
+      : `<li>${m.noGuests}</li>`;
 
   const code = reservation.reservation_code || reservation.id;
-  const submittedAt = reservation.submittedAt || reservation.submitted_at_display;
+  const submittedAt =
+    reservation.submittedAt || reservation.submitted_at_display;
   const slots = reservation.selectedTimeSlots || [];
   const timeText = reservation.time_range_display || timeRange(slots);
   const totalCount =
     reservation.totalGuestCount ||
     reservation.total_party_size ||
-    ((reservation.guests || []).length + (reservation.clubxGuests || []).length);
+    (reservation.guests || []).length;
 
   return `
     <div class="summary">
       ${code ? `<div class="summary-block"><h3>${m.reservationId}</h3><p class="muted">${escapeHtml(code)}</p></div>` : ""}
       ${submittedAt ? `<div class="summary-block"><h3>${m.submittedAt}</h3><p class="muted">${escapeHtml(submittedAt)}</p></div>` : ""}
       <div class="summary-block"><h3>${m.selectedTime}</h3><p class="muted">${escapeHtml(timeText)}</p></div>
-      <div class="summary-block"><h3>${m.nonClubxGuests}</h3><ul class="summary-list">${guestRows}</ul></div>
-      <div class="summary-block"><h3>${m.clubxGuests}</h3><ul class="summary-list">${clubxRows}</ul></div>
+      <div class="summary-block"><h3>${m.guestsLabel}</h3><ul class="summary-list">${guestRows}</ul></div>
       <div class="total-pill">${m.total(totalCount)}</div>
     </div>
   `;
@@ -996,31 +975,12 @@ function homePage() {
         </div>
         <div>
           <div class="cta-grid">
-            <a class="button dark" href="/guest-reservation" data-link>${m.guestCta}</a>
-            <a class="button primary" href="/clubx" data-link>${m.clubxCta}</a>
+            <a class="button primary" href="/guest-reservation" data-link>${m.primaryCta}</a>
+            <a class="button dark" href="/reservation-lookup" data-link>${m.secondaryCta}</a>
           </div>
         </div>
       </aside>
     </section>
-  `);
-}
-
-function clubxPage() {
-  const m = messages();
-  return layout(`
-    <div class="content-grid">
-      <section class="panel emphasis">
-        <span class="section-label">ClubX</span>
-        <h1 class="page-title">${m.clubxTitle}</h1>
-        <p class="muted">${m.clubxDesc}</p>
-        <div class="form-actions" style="justify-content:flex-start">
-          <a class="button primary" href="https://apps.apple.com/kr/app/club-x-open-square/id6761349162?l=en-GB" target="_blank" rel="noreferrer">${m.ios}</a>
-          <button class="button" data-android>${m.android}</button>
-          <a class="button small" href="/" data-link>${m.backHome}</a>
-        </div>
-      </section>
-      ${appState.androidNotice ? `<div class="toast">${appState.androidNotice}</div>` : ""}
-    </div>
   `);
 }
 
@@ -1042,7 +1002,6 @@ function guestReservationPage() {
   const totalGuestCount = completedGuestCount(r);
   const finalDraft = {
     guests: completedGuests(r),
-    clubxGuests: completedClubXGuests(r),
     selectedTimeSlots: r.selectedTimeSlots,
     totalGuestCount,
   };
@@ -1087,29 +1046,9 @@ function advanceReservationHtml(finalDraft) {
           <button class="button small dark" data-add-guest>${m.addGuest}</button>
         </div>
         <div class="guest-list">
-          ${r.guests.length ? r.guests.map((guest) => guestCard(guest, false)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
+          ${r.guests.length ? r.guests.map((guest) => guestCard(guest)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
         </div>
         ${r.errors.general ? `<p class="error">${r.errors.general}</p>` : ""}
-      </section>
-
-      <section class="panel">
-        <label class="checkbox-row">
-          <input type="checkbox" data-has-clubx ${r.hasClubXGuests ? "checked" : ""}>
-          <span>${m.clubxQuestion}</span>
-        </label>
-        ${
-          r.hasClubXGuests
-            ? `
-          <div class="section-head" style="margin-top:18px">
-            <h2>${m.clubxSection}</h2>
-            <button class="button small primary" data-add-clubx>${m.addClubx}</button>
-          </div>
-          <div class="guest-list">
-            ${r.clubxGuests.length ? r.clubxGuests.map((guest) => guestCard(guest, true)).join("") : `<div class="empty-state">${m.noGuests}</div>`}
-          </div>
-        `
-            : ""
-        }
       </section>
 
       <section class="panel">
@@ -1193,7 +1132,6 @@ function waitlistField(id, label, value, data, type = "text", min = "") {
 function reservationCompletePage() {
   const m = messages();
   const reservation = appState.submitted;
-
   return layout(`
     <div class="content-grid">
       <section class="panel emphasis">
@@ -1201,9 +1139,11 @@ function reservationCompletePage() {
         <h1 class="page-title">${m.complete}</h1>
         <p class="muted">${m.completeGuide}</p>
       </section>
-      ${reservation
-        ? `<section class="panel">${summaryHtml(reservation)}</section>`
-        : `<section class="panel"><p class="muted">${m.completeRefreshHint}</p></section>`}
+      ${
+        reservation
+          ? `<section class="panel">${summaryHtml(reservation)}</section>`
+          : `<section class="panel"><p class="muted">${m.completeRefreshHint}</p></section>`
+      }
       <div class="form-actions" style="justify-content:flex-start">
         <a class="button primary small" href="/reservation-lookup" data-link>${m.lookup}</a>
         <a class="button small" href="/guest-reservation" data-link>${m.newReservation}</a>
@@ -1213,70 +1153,14 @@ function reservationCompletePage() {
   `);
 }
 
-function guestCard(guest, isClubx) {
+function guestCard(guest) {
   const m = messages();
   const errors = appState.reservation.errors || {};
   return `
-    <div class="guest-card ${isClubx ? "clubx" : ""}" data-card-id="${guest.id}">
-      ${
-        isClubx
-          ? clubxGuestFieldHtml(guest, errors[`username-${guest.id}`])
-          : `
-              ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
-              ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
-            `
-      }
-      <button class="button small" data-delete="${guest.id}" data-type="${isClubx ? "clubx" : "guest"}">${m.delete}</button>
-    </div>
-  `;
-}
-
-function clubxGuestFieldHtml(guest, errorMessage) {
-  const m = messages();
-  if (guest.selectedUser) {
-    const u = guest.selectedUser;
-    const display = `${u.display_name || ""}${u.username ? ` (@${u.username})` : ""}`;
-    return `
-      <div class="field">
-        <label>${m.username}</label>
-        <div class="clubx-selected" role="status">
-          <span class="clubx-selected-label">${escapeHtml(display)}</span>
-          <button type="button" class="button small" data-clubx-clear="${guest.id}">${m.clubxChange}</button>
-        </div>
-        <span class="error">${errorMessage || ""}</span>
-      </div>
-    `;
-  }
-  const results = guest.results || [];
-  const showDropdown = (guest.query || "").trim().length >= 2;
-  let dropdown = "";
-  if (showDropdown) {
-    if (guest.searching) {
-      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">...</div></div>`;
-    } else if (guest.searchError) {
-      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">${escapeHtml(guest.searchError)}</div></div>`;
-    } else if (!results.length) {
-      dropdown = `<div class="clubx-dropdown"><div class="clubx-dropdown-empty">${m.clubxSearchEmpty}</div></div>`;
-    } else {
-      dropdown = `<div class="clubx-dropdown">${results
-        .map(
-          (u) => `
-            <button type="button" class="clubx-dropdown-item" data-clubx-pick="${guest.id}" data-user-id="${escapeHtml(u.user_id)}">
-              <span class="clubx-dropdown-name">${escapeHtml(u.display_name || "")}</span>
-              <span class="clubx-dropdown-username">@${escapeHtml(u.username || "")}</span>
-            </button>
-          `,
-        )
-        .join("")}</div>`;
-    }
-  }
-  return `
-    <div class="field clubx-search-field">
-      <label for="clubx-search-${guest.id}">${m.username}</label>
-      <input id="clubx-search-${guest.id}" data-clubx-search="${guest.id}" value="${escapeHtml(guest.query || "")}" placeholder="${m.clubxSearchPlaceholder}" autocomplete="off" aria-invalid="${errorMessage ? "true" : "false"}">
-      ${dropdown}
-      <span class="clubx-hint muted">${m.clubxSearchHint}</span>
-      <span class="error">${errorMessage || ""}</span>
+    <div class="guest-card" data-card-id="${guest.id}">
+      ${fieldHtml(m.name, "name", guest.id, guest.name, errors[`name-${guest.id}`])}
+      ${fieldHtml(m.phone, "phone", guest.id, guest.phone, errors[`phone-${guest.id}`])}
+      <button class="button small" data-delete="${guest.id}">${m.delete}</button>
     </div>
   `;
 }
@@ -1295,10 +1179,7 @@ function timeSlotGrid() {
   if (appState.configError) {
     return `<div class="time-grid-wrap"><p class="error">${escapeHtml(appState.configError)}</p></div>`;
   }
-  if (!appState.configLoaded) {
-    return `<div class="time-grid-wrap"><p class="muted">${messages().availabilityLoading}</p></div>`;
-  }
-  if (appState.availabilityLoading) {
+  if (!appState.configLoaded || appState.availabilityLoading) {
     return `<div class="time-grid-wrap"><p class="muted">${messages().availabilityLoading}</p></div>`;
   }
   if (appState.availabilityError) {
@@ -1317,25 +1198,31 @@ function timeSlotGrid() {
     <div class="time-grid-wrap">
       <h3 class="advance-section-title">${m.groupedAdvanceTitle}</h3>
       <div class="advance-group-grid">
-        ${ADVANCE_GROUPS.map((group) => {
+        ${EARLY_GROUPS.map((group) => {
           const remaining = rangeRemaining(group.start, group.end);
           const unavailable = remaining <= 0;
           const selectedGroup = selectedRangeMatches(group.start, group.end);
           return `
-            <button class="advance-option-card ${selectedGroup ? "selected" : ""} ${unavailable ? "unavailable" : ""}" data-advance-group="${group.id}" ${unavailable ? "disabled" : ""} type="button">
-              <span class="advance-option-time">${escapeHtml(group.label)}</span>
+            <button class="advance-option-card ${selectedGroup ? "selected" : ""} ${unavailable ? "unavailable" : ""}" data-advance-group="${group.key}" ${unavailable ? "disabled" : ""} type="button">
+              <span class="advance-option-time">${escapeHtml(group.display)}</span>
+              <span class="advance-option-tag">${m.fixedBlockTag}</span>
               <span class="advance-option-remaining">${unavailable ? m.soldOutBadge : m.remainingAdvance(remaining)}</span>
             </button>
           `;
         }).join("")}
       </div>
-      <h3 class="advance-section-title">${m.flexibleAdvanceTitle}</h3>
+      ${
+        flexibleSlots.length
+          ? `<h3 class="advance-section-title">${m.flexibleAdvanceTitle}</h3>
       <div class="time-grid" role="group" aria-label="${m.timeTitle}">
         ${flexibleSlots
           .map((slot) => {
             const block = blockMap[slot] || {};
             const isUnavailable = isSlotUnavailable(slot);
-            const remaining = typeof block.remaining_tables === "number" ? block.remaining_tables : null;
+            const remaining =
+              typeof block.remaining_tables === "number"
+                ? block.remaining_tables
+                : null;
             const isSelected = selected.includes(slot);
             return `
           <button class="slot-button ${isSelected ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${escapeHtml(slot)}" ${isUnavailable ? "disabled" : ""}>
@@ -1346,7 +1233,9 @@ function timeSlotGrid() {
         `;
           })
           .join("")}
-      </div>
+      </div>`
+          : ""
+      }
     </div>
   `;
 }
@@ -1382,13 +1271,17 @@ function lookupPage() {
         </div>
         ${appState.lookupMode === "walkin" ? waitlistLookupFormHtml() : advanceLookupFormHtml()}
       </section>
-      ${appState.lookupMode === "advance" && result ? `<section class="panel">${summaryHtml(result)}${
-        result.status === "submitted"
-          ? `<div class="form-actions" style="margin-top:16px"><button class="button red" data-cancel-reservation>${m.selfCancelButton}</button></div>`
-          : result.status === "cancelled"
-            ? `<p class="muted" style="margin-top:12px">${m.selfCancelAlreadyDone}</p>`
-            : ""
-      }</section>` : ""}
+      ${
+        appState.lookupMode === "advance" && result
+          ? `<section class="panel">${summaryHtml(result)}${
+              result.status === "submitted"
+                ? `<div class="form-actions" style="margin-top:16px"><button class="button red" data-cancel-reservation>${m.selfCancelButton}</button></div>`
+                : result.status === "cancelled"
+                  ? `<p class="muted" style="margin-top:12px">${m.selfCancelAlreadyDone}</p>`
+                  : ""
+            }</section>`
+          : ""
+      }
       ${appState.lookupMode === "walkin" && appState.waitlistLookupResult ? `<section class="panel waitlist-result">${waitlistResultHtml(appState.waitlistLookupResult)}</section>` : ""}
       <a class="button small" href="/" data-link>${m.backHome}</a>
     </div>
@@ -1405,11 +1298,6 @@ function advanceLookupFormHtml() {
           ${fieldPlain("lookup-name", m.name, appState.lookupName || "", "lookup-name")}
           ${fieldPlain("lookup-phone", m.phone, appState.lookupPhone || "", "lookup-phone")}
         </div>
-      </div>
-      <div class="lookup-divider"><span>${m.lookupOr}</span></div>
-      <div class="lookup-section">
-        <h2>${m.lookupClubxGroup}</h2>
-        ${fieldPlain("lookup-username", m.lookupUsername, appState.lookupUsername || "", "lookup-username")}
       </div>
       <button class="button primary" data-lookup>${appState.lookupLoading ? m.lookupLoadingLabel : m.checkReservation}</button>
     </div>
@@ -1445,7 +1333,7 @@ function termsPage() {
     <div class="content-grid">
       <section class="panel emphasis">
         <h1 class="page-title">${m.privacyTitle}</h1>
-        <div class="terms">${m.terms}</div>
+        <div class="terms">${escapeHtml(m.terms)}</div>
       </section>
       <div class="form-actions" style="justify-content:flex-start">
         <a class="button primary small" href="/guest-reservation" data-link>${m.backReservation}</a>
@@ -1457,14 +1345,21 @@ function termsPage() {
 
 function faqPage() {
   const m = messages();
+  const items = m.faqList || [];
   return layout(`
     <div class="content-grid">
       <section class="panel emphasis">
         <h1 class="page-title">${m.faqTitle}</h1>
-        <div class="card" style="margin-top:20px">
-          <h3>${m.faqQ}</h3>
-          <p class="muted">${m.faqA}</p>
-        </div>
+        ${items
+          .map(
+            (item) => `
+          <div class="card" style="margin-top:20px">
+            <h3>${escapeHtml(item.q)}</h3>
+            <p class="muted">${escapeHtml(item.a)}</p>
+          </div>
+        `,
+          )
+          .join("")}
       </section>
       <a class="button small" href="/" data-link>${m.backHome}</a>
     </div>
@@ -1474,7 +1369,6 @@ function faqPage() {
 function render() {
   const routes = {
     "/": homePage,
-    "/clubx": clubxPage,
     "/guest-reservation": guestReservationPage,
     "/reservation-complete": reservationCompletePage,
     "/reservation-lookup": lookupPage,
@@ -1492,18 +1386,12 @@ function bindEvents() {
     button.addEventListener("click", () => setLang(button.dataset.lang));
   });
 
-  document.querySelector("[data-android]")?.addEventListener("click", () => {
-    appState.androidNotice = messages().androidNotice;
-    render();
-  });
-
   if (appState.route === "/guest-reservation") {
     bindReservationModeEvents();
     if (appState.reservationMode === "walkin") {
       bindWaitlistEvents();
     } else {
       bindReservationEvents();
-      bindClubXSearchEvents();
     }
     ensureAvailabilityLoaded();
   }
@@ -1528,21 +1416,6 @@ function bindReservationEvents() {
     render();
   });
 
-  document.querySelector("[data-add-clubx]")?.addEventListener("click", () => {
-    r.clubxGuests.push(emptyClubXGuest());
-    render();
-  });
-
-  document
-    .querySelector("[data-has-clubx]")
-    ?.addEventListener("change", (event) => {
-      r.hasClubXGuests = event.target.checked;
-      if (r.hasClubXGuests && !r.clubxGuests.length)
-        r.clubxGuests.push(emptyClubXGuest());
-      if (!r.hasClubXGuests) r.clubxGuests = [];
-      render();
-    });
-
   document
     .querySelector("[data-privacy]")
     ?.addEventListener("change", (event) => {
@@ -1553,20 +1426,14 @@ function bindReservationEvents() {
 
   document.querySelectorAll("[data-field]").forEach((input) => {
     input.addEventListener("input", (event) => {
-      const guest = [...r.guests, ...r.clubxGuests].find(
-        (item) => item.id === input.dataset.id,
-      );
+      const guest = r.guests.find((item) => item.id === input.dataset.id);
       if (!guest) return;
       const value =
         input.dataset.field === "phone"
           ? formatPhone(event.target.value)
           : event.target.value;
       if (input.dataset.field === "phone") event.target.value = value;
-      const key =
-        input.dataset.field === "username"
-          ? "clubxUsername"
-          : input.dataset.field;
-      guest[key] = value;
+      guest[input.dataset.field] = value;
       delete r.errors[`${input.dataset.field}-${guest.id}`];
       updateTotalCountDom();
     });
@@ -1574,15 +1441,7 @@ function bindReservationEvents() {
 
   document.querySelectorAll("[data-delete]").forEach((button) => {
     button.addEventListener("click", () => {
-      if (button.dataset.type === "clubx") {
-        r.clubxGuests = r.clubxGuests.filter(
-          (guest) => guest.id !== button.dataset.delete,
-        );
-      } else {
-        r.guests = r.guests.filter(
-          (guest) => guest.id !== button.dataset.delete,
-        );
-      }
+      r.guests = r.guests.filter((guest) => guest.id !== button.dataset.delete);
       render();
     });
   });
@@ -1611,64 +1470,70 @@ function bindReservationEvents() {
       render();
     });
 
-  document.querySelector("[data-confirm]")?.addEventListener("click", async () => {
-    if (appState.submitting) return;
-    let payload;
-    try {
-      payload = buildReservationPayload();
-    } catch (err) {
-      appState.submitError = err.message;
-      appState.modalOpen = false;
-      render();
-      return;
-    }
-    appState.submitting = true;
-    appState.submitError = "";
-    render();
-    try {
-      const created = await apiPost("/public/pub-reservations", payload);
-      const m = messages();
-      appState.submitted = {
-        reservation_code: created.reservation_code,
-        submittedAt: new Date().toLocaleString(
-          appState.lang === "ko" ? "ko-KR" : "en-US",
-        ),
-        time_range_display: created.time_range
-          ? `${created.time_range.start_label} - ${created.time_range.end_label}`
-          : timeRange(payload && appState.reservation
-              ? appState.reservation.selectedTimeSlots
-              : []),
-        guests: (created.non_clubx_guests || []).map((g) => ({
-          name: g.name,
-          phone: g.phone_masked || "",
-        })),
-        clubxGuests: (created.clubx_guests || []).map((g) => ({
-          clubxUsername: g.username,
-          displayName: g.display_name,
-        })),
-        total_party_size: created.total_party_size,
-        selectedTimeSlots: [],
-      };
+  document
+    .querySelector("[data-confirm]")
+    ?.addEventListener("click", async () => {
+      if (appState.submitting) return;
+      let payload;
       try {
-        sessionStorage.setItem(LAST_SUBMITTED_KEY, created.reservation_code);
-      } catch {}
-      appState.modalOpen = false;
-      appState.submitting = false;
-      initReservation();
-      navigate("/reservation-complete");
-    } catch (err) {
-      appState.submitting = false;
-      appState.modalOpen = false;
-      if (err.status === 409) {
-        appState.submitError = messages().soldOut;
-        // Refresh availability since the grid changed.
-        loadAvailabilityForCurrentPartySize();
-      } else {
-        appState.submitError = err.message || messages().submitError;
+        payload = buildReservationPayload();
+      } catch (err) {
+        appState.submitError = err.message;
+        appState.modalOpen = false;
+        render();
+        return;
       }
+      appState.submitting = true;
+      appState.submitError = "";
       render();
-    }
-  });
+      try {
+        const created = await apiPost("/public/pub-reservations", payload);
+        appState.submitted = {
+          reservation_code: created.reservation_code,
+          submittedAt: new Date().toLocaleString(
+            appState.lang === "ko" ? "ko-KR" : "en-US",
+          ),
+          time_range_display: created.time_range
+            ? (() => {
+                const grouped = getEarlyGroupForRange(
+                  created.time_range.start_minute,
+                  created.time_range.end_minute,
+                );
+                return grouped
+                  ? grouped.display
+                  : `${created.time_range.start_label} - ${created.time_range.end_label}`;
+              })()
+            : timeRange(
+                payload && appState.reservation
+                  ? appState.reservation.selectedTimeSlots
+                  : [],
+              ),
+          guests: (created.non_clubx_guests || []).map((g) => ({
+            name: g.name,
+            phone: g.phone_masked || "",
+          })),
+          total_party_size: created.total_party_size,
+          selectedTimeSlots: [],
+        };
+        try {
+          sessionStorage.setItem(LAST_SUBMITTED_KEY, created.reservation_code);
+        } catch {}
+        appState.modalOpen = false;
+        appState.submitting = false;
+        initReservation();
+        navigate("/reservation-complete");
+      } catch (err) {
+        appState.submitting = false;
+        appState.modalOpen = false;
+        if (err.status === 409) {
+          appState.submitError = messages().soldOut;
+          loadAvailabilityForCurrentPartySize();
+        } else {
+          appState.submitError = err.message || messages().submitError;
+        }
+        render();
+      }
+    });
 }
 
 function validateWaitlist() {
@@ -1678,7 +1543,7 @@ function validateWaitlist() {
   if (!validateName(w.name || "")) errors.general = m.validation.name;
   if (!validatePhone(w.phone || "")) errors.general = m.validation.phone;
   const partySize = Number(w.partySize || 0);
-  if (!partySize || partySize < 2) errors.general = m.validation.minParty;
+  if (!partySize || partySize < 2) errors.general = m.validation.minPartyWaitlist;
   if (!w.privacyConsent) errors.privacy = m.validation.privacy;
   w.errors = errors;
   return Object.keys(errors).length === 0;
@@ -1686,22 +1551,30 @@ function validateWaitlist() {
 
 function bindWaitlistEvents() {
   const w = appState.waitlist;
-  document.querySelector("[data-waitlist-name]")?.addEventListener("input", (event) => {
-    w.name = event.target.value;
-    delete w.errors.general;
-  });
-  document.querySelector("[data-waitlist-phone]")?.addEventListener("input", (event) => {
-    event.target.value = formatPhone(event.target.value);
-    w.phone = event.target.value;
-    delete w.errors.general;
-  });
-  document.querySelector("[data-waitlist-party]")?.addEventListener("input", (event) => {
-    w.partySize = event.target.value;
-    delete w.errors.general;
-  });
-  document.querySelector("[data-waitlist-preferred]")?.addEventListener("change", (event) => {
-    w.preferredRange = event.target.value;
-  });
+  document
+    .querySelector("[data-waitlist-name]")
+    ?.addEventListener("input", (event) => {
+      w.name = event.target.value;
+      delete w.errors.general;
+    });
+  document
+    .querySelector("[data-waitlist-phone]")
+    ?.addEventListener("input", (event) => {
+      event.target.value = formatPhone(event.target.value);
+      w.phone = event.target.value;
+      delete w.errors.general;
+    });
+  document
+    .querySelector("[data-waitlist-party]")
+    ?.addEventListener("input", (event) => {
+      w.partySize = event.target.value;
+      delete w.errors.general;
+    });
+  document
+    .querySelector("[data-waitlist-preferred]")
+    ?.addEventListener("change", (event) => {
+      w.preferredRange = event.target.value;
+    });
   document
     .querySelector("[data-waitlist-privacy]")
     ?.addEventListener("change", (event) => {
@@ -1709,49 +1582,80 @@ function bindWaitlistEvents() {
       delete w.errors.privacy;
       render();
     });
-  document.querySelector("[data-waitlist-submit]")?.addEventListener("click", async () => {
-    if (!validateWaitlist()) {
+  document
+    .querySelector("[data-waitlist-submit]")
+    ?.addEventListener("click", async () => {
+      if (!validateWaitlist()) {
+        render();
+        return;
+      }
+      if (!appState.eventId) {
+        appState.waitlistSubmitError = messages().configError;
+        render();
+        return;
+      }
+      const range = parseRangeValue(w.preferredRange);
+      const payload = {
+        event_id: appState.eventId,
+        name: w.name.trim(),
+        phone: normalizePhone(w.phone),
+        party_size: Number(w.partySize),
+        privacy_consent: true,
+        locale: appState.lang,
+      };
+      if (range) {
+        payload.preferred_start_minute = range.start;
+        payload.preferred_end_minute = range.end;
+      }
+      appState.waitlistSubmitting = true;
+      appState.waitlistSubmitError = "";
       render();
-      return;
-    }
-    if (!appState.eventId) {
-      appState.waitlistSubmitError = messages().configError;
-      render();
-      return;
-    }
-    const range = parseRangeValue(w.preferredRange);
-    const payload = {
-      event_id: appState.eventId,
-      name: w.name.trim(),
-      phone: normalizePhone(w.phone),
-      party_size: Number(w.partySize),
-      privacy_consent: true,
-      locale: appState.lang,
-    };
-    if (range) {
-      payload.preferred_start_minute = range.start;
-      payload.preferred_end_minute = range.end;
-    }
-    appState.waitlistSubmitting = true;
-    appState.waitlistSubmitError = "";
-    render();
-    try {
-      const created = await apiPost("/public/pub-reservations/waitlist", payload);
-      appState.waitlist.result = created;
-    } catch (err) {
-      appState.waitlistSubmitError = err.message || messages().waitlistSubmitError;
-    } finally {
-      appState.waitlistSubmitting = false;
-      render();
-    }
-  });
+      try {
+        const created = await apiPost(
+          "/public/pub-reservations/waitlist",
+          payload,
+        );
+        appState.waitlist.result = created;
+      } catch (err) {
+        appState.waitlistSubmitError =
+          err.message || messages().waitlistSubmitError;
+      } finally {
+        appState.waitlistSubmitting = false;
+        render();
+      }
+    });
 }
 
+/**
+ * Slot click handler for the flexible (21:00+) area.
+ * Clicking any flexible slot also clears any selected early group.
+ */
 function selectSlot(slot) {
   if (isSlotUnavailable(slot)) return;
   const r = appState.reservation;
   const clicked = timeSlots.indexOf(slot);
   if (clicked < 0) return;
+
+  // If the user clicks a flexible slot while an early group was selected,
+  // clear the early group first.
+  const block = blockMap[slot];
+  if (block && block.start_minute >= 1260) {
+    const hasEarly = r.selectedTimeSlots.some((s) => getEarlyGroupForLabel(s));
+    if (hasEarly) {
+      r.selectedTimeSlots = [slot];
+      delete r.errors.time;
+      refreshAvailabilityForPartySize();
+      render();
+      return;
+    }
+  } else {
+    // Slot is in an early group → defer to selectAdvanceGroup-style logic
+    const group = getEarlyGroupForLabel(slot);
+    if (group) {
+      toggleEarlyGroup(group);
+      return;
+    }
+  }
 
   const selectedIndexes = r.selectedTimeSlots
     .map((selected) => timeSlots.indexOf(selected))
@@ -1767,9 +1671,13 @@ function selectSlot(slot) {
     if (selectedIndexes.length === 1) {
       r.selectedTimeSlots = [];
     } else if (clicked === first) {
-      r.selectedTimeSlots = selectedIndexes.slice(1).map((index) => timeSlots[index]);
+      r.selectedTimeSlots = selectedIndexes
+        .slice(1)
+        .map((index) => timeSlots[index]);
     } else if (clicked === last) {
-      r.selectedTimeSlots = selectedIndexes.slice(0, -1).map((index) => timeSlots[index]);
+      r.selectedTimeSlots = selectedIndexes
+        .slice(0, -1)
+        .map((index) => timeSlots[index]);
     } else {
       r.selectedTimeSlots = [slot];
     }
@@ -1781,29 +1689,47 @@ function selectSlot(slot) {
     const proposed = timeSlots.slice(rangeStart, rangeEnd + 1);
     const isContinuousExtension = clicked === first - 1 || clicked === last + 1;
     const fitsMax = proposed.length <= maxSlots;
-    const hasUnavailable = proposed.some((candidate) => isSlotUnavailable(candidate));
-    if (isContinuousExtension && fitsMax && !hasUnavailable) {
+    const hasUnavailable = proposed.some((c) => isSlotUnavailable(c));
+    const crossesEarly = proposed.some((c) => getEarlyGroupForLabel(c));
+    if (isContinuousExtension && fitsMax && !hasUnavailable && !crossesEarly) {
       r.selectedTimeSlots = proposed;
     } else {
       r.selectedTimeSlots = [slot];
     }
   }
-  r.selectedTimeSlots = r.selectedTimeSlots.filter((s) => !isSlotUnavailable(s));
+  r.selectedTimeSlots = r.selectedTimeSlots.filter(
+    (s) => !isSlotUnavailable(s),
+  );
   delete r.errors.time;
   refreshAvailabilityForPartySize();
   render();
 }
 
-function selectAdvanceGroup(groupId) {
-  const group = ADVANCE_GROUPS.find((item) => item.id === groupId);
-  if (!group || rangeRemaining(group.start, group.end) <= 0) return;
+/**
+ * Toggle a fixed early-time group. Clicking re-selects the whole 90-min block;
+ * clicking the same group again clears the selection. Always overwrites any
+ * previous selection (including the other early group or any flexible slots).
+ */
+function toggleEarlyGroup(group) {
   const r = appState.reservation;
-  const slots = slotsInRange(group.start, group.end);
-  if (!slots.length || slots.some((slot) => isSlotUnavailable(slot))) return;
-  r.selectedTimeSlots = slots;
+  if (rangeRemaining(group.start, group.end) <= 0) return;
+  const alreadySelected = selectedRangeMatches(group.start, group.end);
+  if (alreadySelected) {
+    r.selectedTimeSlots = [];
+  } else {
+    const slots = slotsInRange(group.start, group.end);
+    if (!slots.length || slots.some((slot) => isSlotUnavailable(slot))) return;
+    r.selectedTimeSlots = slots;
+  }
   delete r.errors.time;
   refreshAvailabilityForPartySize();
   render();
+}
+
+function selectAdvanceGroup(groupKey) {
+  const group = EARLY_GROUPS.find((g) => g.key === groupKey);
+  if (!group) return;
+  toggleEarlyGroup(group);
 }
 
 function bindLookupEvents() {
@@ -1816,105 +1742,98 @@ function bindLookupEvents() {
     });
   });
 
-  const nameInput = document.querySelector("[data-lookup-name]");
-  const phoneInput = document.querySelector("[data-lookup-phone]");
-  const usernameInput = document.querySelector("[data-lookup-username]");
-  nameInput?.addEventListener("input", (event) => {
-    appState.lookupName = event.target.value;
-  });
-  phoneInput?.addEventListener("input", (event) => {
-    event.target.value = formatPhone(event.target.value);
-    appState.lookupPhone = event.target.value;
-  });
-  usernameInput?.addEventListener("input", (event) => {
-    appState.lookupUsername = event.target.value;
-  });
+  document
+    .querySelector("[data-lookup-name]")
+    ?.addEventListener("input", (event) => {
+      appState.lookupName = event.target.value;
+    });
+  document
+    .querySelector("[data-lookup-phone]")
+    ?.addEventListener("input", (event) => {
+      event.target.value = formatPhone(event.target.value);
+      appState.lookupPhone = event.target.value;
+    });
 
-  document.querySelector("[data-waitlist-lookup-code]")?.addEventListener("input", (event) => {
-    appState.waitlistLookupCode = event.target.value;
-  });
-  document.querySelector("[data-waitlist-lookup-phone]")?.addEventListener("input", (event) => {
-    event.target.value = formatPhone(event.target.value);
-    appState.waitlistLookupPhone = event.target.value;
-  });
-  document.querySelector("[data-waitlist-lookup-name]")?.addEventListener("input", (event) => {
-    appState.waitlistLookupName = event.target.value;
-  });
+  document
+    .querySelector("[data-waitlist-lookup-code]")
+    ?.addEventListener("input", (event) => {
+      appState.waitlistLookupCode = event.target.value;
+    });
+  document
+    .querySelector("[data-waitlist-lookup-phone]")
+    ?.addEventListener("input", (event) => {
+      event.target.value = formatPhone(event.target.value);
+      appState.waitlistLookupPhone = event.target.value;
+    });
+  document
+    .querySelector("[data-waitlist-lookup-name]")
+    ?.addEventListener("input", (event) => {
+      appState.waitlistLookupName = event.target.value;
+    });
 
-  document.querySelector("[data-waitlist-lookup]")?.addEventListener("click", async () => {
-    const m = messages();
-    const waitingCode = (appState.waitlistLookupCode || "").trim();
-    const phone = formatPhone(appState.waitlistLookupPhone || "");
-    const name = (appState.waitlistLookupName || "").trim();
-    appState.waitlistLookupResult = null;
-    appState.waitlistLookupMessage = "";
-    const payload = {};
-    if (waitingCode) {
-      payload.waiting_code = waitingCode;
-    } else if (phone) {
-      if (!validatePhone(phone)) {
-        appState.waitlistLookupMessage = m.validation.phone;
+  document
+    .querySelector("[data-waitlist-lookup]")
+    ?.addEventListener("click", async () => {
+      const m = messages();
+      const waitingCode = (appState.waitlistLookupCode || "").trim();
+      const phone = formatPhone(appState.waitlistLookupPhone || "");
+      const name = (appState.waitlistLookupName || "").trim();
+      appState.waitlistLookupResult = null;
+      appState.waitlistLookupMessage = "";
+      const payload = {};
+      if (waitingCode) {
+        payload.waiting_code = waitingCode;
+      } else if (phone) {
+        if (!validatePhone(phone)) {
+          appState.waitlistLookupMessage = m.validation.phone;
+          render();
+          return;
+        }
+        payload.phone = normalizePhone(phone);
+        if (name) payload.name = name;
+      } else {
+        appState.waitlistLookupMessage = m.waitlistLookupCodeOrPhone;
         render();
         return;
       }
-      payload.phone = normalizePhone(phone);
-      if (name) payload.name = name;
-    } else {
-      appState.waitlistLookupMessage = m.waitlistLookupCodeOrPhone;
+      appState.waitlistLookupLoading = true;
       render();
-      return;
-    }
-    appState.waitlistLookupLoading = true;
-    render();
-    try {
-      const response = await apiPost("/public/pub-reservations/waitlist/lookup", payload);
-      if (!response.found || !response.waitlist) {
-        appState.waitlistLookupMessage = m.waitlistLookupFail;
-      } else {
-        appState.waitlistLookupResult = response.waitlist;
+      try {
+        const response = await apiPost(
+          "/public/pub-reservations/waitlist/lookup",
+          payload,
+        );
+        if (!response.found || !response.waitlist) {
+          appState.waitlistLookupMessage = m.waitlistLookupFail;
+        } else {
+          appState.waitlistLookupResult = response.waitlist;
+        }
+      } catch (err) {
+        appState.waitlistLookupMessage = err.message || m.waitlistLookupFail;
+      } finally {
+        appState.waitlistLookupLoading = false;
+        render();
       }
-    } catch (err) {
-      appState.waitlistLookupMessage = err.message || m.waitlistLookupFail;
-    } finally {
-      appState.waitlistLookupLoading = false;
-      render();
-    }
-  });
+    });
 
   document.querySelector("[data-lookup]")?.addEventListener("click", async () => {
     const m = messages();
     const name = (appState.lookupName || "").trim();
     const phone = formatPhone(appState.lookupPhone || "");
-    const username = (appState.lookupUsername || "").trim();
     appState.lookupResult = null;
     appState.lookupMessage = "";
 
-    let payload;
-    if (username) {
-      if (!validateUsername(username)) {
-        appState.lookupMessage = m.validation.username;
-        render();
-        return;
-      }
-      payload = { type: "clubx", clubx_username: username };
-    } else if (/^KUBA-/i.test(name) && !phone) {
-      // No-op: legacy ID format; ignore
-      appState.lookupMessage = m.lookupFail;
+    if (!validateName(name)) {
+      appState.lookupMessage = m.validation.name;
       render();
       return;
-    } else {
-      if (!validateName(name)) {
-        appState.lookupMessage = m.validation.name;
-        render();
-        return;
-      }
-      if (!validatePhone(phone)) {
-        appState.lookupMessage = m.validation.phone;
-        render();
-        return;
-      }
-      payload = { type: "guest", name, phone: normalizePhone(phone) };
     }
+    if (!validatePhone(phone)) {
+      appState.lookupMessage = m.validation.phone;
+      render();
+      return;
+    }
+    const payload = { type: "guest", name, phone: normalizePhone(phone) };
     if (appState.eventId) payload.event_id = appState.eventId;
 
     appState.lookupLoading = true;
@@ -1934,21 +1853,24 @@ function bindLookupEvents() {
           status: first.status || "submitted",
           submittedAt: "",
           time_range_display: first.time_range
-            ? `${first.time_range.start_label} - ${first.time_range.end_label}`
+            ? (() => {
+                const grouped = getEarlyGroupForRange(
+                  first.time_range.start_minute,
+                  first.time_range.end_minute,
+                );
+                return grouped
+                  ? grouped.display
+                  : `${first.time_range.start_label} - ${first.time_range.end_label}`;
+              })()
             : "",
           guests: (first.non_clubx_guests || []).map((g) => ({
             name: g.name,
             phone: g.phone_masked || "",
           })),
-          clubxGuests: (first.clubx_guests || []).map((g) => ({
-            clubxUsername: g.username,
-            displayName: g.display_name,
-          })),
           total_party_size: first.total_party_size,
           selectedTimeSlots: [],
         };
-        appState.lookupUsedPhone = payload.type === "guest" ? payload.phone : "";
-        appState.lookupUsedUsername = payload.type === "clubx" ? payload.clubx_username : "";
+        appState.lookupUsedPhone = payload.phone;
       }
     } catch (err) {
       appState.lookupMessage = err.message || m.lookupFail;
@@ -1967,8 +1889,6 @@ function bindLookupEvents() {
       if (!window.confirm(m2.selfCancelConfirm)) return;
       const cancelPayload = { reservation_code: r.reservation_code };
       if (appState.lookupUsedPhone) cancelPayload.phone = appState.lookupUsedPhone;
-      else if (appState.lookupUsedUsername)
-        cancelPayload.clubx_username = appState.lookupUsedUsername;
       try {
         const response = await apiPost(
           "/public/pub-reservations/cancel",
@@ -1991,7 +1911,6 @@ function bindLookupEvents() {
 document.addEventListener("click", (event) => {
   const link = event.target.closest("[data-link]");
   if (!link) return;
-
   event.preventDefault();
   navigate(link.getAttribute("href"));
 });
@@ -2007,106 +1926,7 @@ if (appState.route === "/guest-reservation") {
   initWaitlist();
 }
 
-// ---- ClubX user search & backend bootstrap ----
-
-const clubxSearchTimers = new Map();
-
-function bindClubXSearchEvents() {
-  const r = appState.reservation;
-  if (!r) return;
-  document.querySelectorAll("[data-clubx-search]").forEach((input) => {
-    input.addEventListener("input", (event) => {
-      const guestId = input.dataset.clubxSearch;
-      const guest = r.clubxGuests.find((g) => g.id === guestId);
-      if (!guest) return;
-      guest.query = event.target.value;
-      guest.searchError = "";
-      delete r.errors[`username-${guest.id}`];
-      const query = guest.query.trim();
-      if (clubxSearchTimers.has(guestId)) {
-        clearTimeout(clubxSearchTimers.get(guestId));
-      }
-      if (query.length < 2) {
-        guest.results = [];
-        guest.searching = false;
-        renderClubXGuest(guest);
-        return;
-      }
-      guest.searching = true;
-      renderClubXGuest(guest);
-      const token = ++guest.searchToken;
-      const timer = setTimeout(async () => {
-        try {
-          const data = await apiGet(
-            `/public/pub-reservations/clubx-users/search?query=${encodeURIComponent(query)}`,
-          );
-          if (token !== guest.searchToken) return;
-          guest.results = (data && data.results) || [];
-          guest.searching = false;
-          guest.searchError = "";
-        } catch (err) {
-          if (token !== guest.searchToken) return;
-          guest.results = [];
-          guest.searching = false;
-          guest.searchError = err.message || messages().clubxSearchError;
-        } finally {
-          renderClubXGuest(guest);
-        }
-      }, 300);
-      clubxSearchTimers.set(guestId, timer);
-    });
-  });
-
-  document.querySelectorAll("[data-clubx-pick]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const guestId = button.dataset.clubxPick;
-      const userId = button.dataset.userId;
-      const guest = r.clubxGuests.find((g) => g.id === guestId);
-      if (!guest) return;
-      const user = (guest.results || []).find((u) => u.user_id === userId);
-      if (!user) return;
-      guest.selectedUser = user;
-      guest.query = `${user.display_name || ""} (@${user.username || ""})`;
-      guest.results = [];
-      delete r.errors[`username-${guest.id}`];
-      render();
-    });
-  });
-
-  document.querySelectorAll("[data-clubx-clear]").forEach((button) => {
-    button.addEventListener("click", () => {
-      const guestId = button.dataset.clubxClear;
-      const guest = r.clubxGuests.find((g) => g.id === guestId);
-      if (!guest) return;
-      guest.selectedUser = null;
-      guest.query = "";
-      guest.results = [];
-      render();
-    });
-  });
-}
-
-function renderClubXGuest(guest) {
-  // Re-render the entire form is the simplest path since search results affect layout.
-  // Preserve input focus on the search field for the guest being edited.
-  const activeId = document.activeElement && document.activeElement.id;
-  const selectionStart =
-    document.activeElement && "selectionStart" in document.activeElement
-      ? document.activeElement.selectionStart
-      : null;
-  render();
-  if (activeId) {
-    const next = document.getElementById(activeId);
-    if (next) {
-      next.focus();
-      if (selectionStart !== null && "setSelectionRange" in next) {
-        try {
-          next.setSelectionRange(selectionStart, selectionStart);
-        } catch {}
-      }
-    }
-  }
-}
+// ---- Backend bootstrap ----
 
 async function bootstrapConfig() {
   if (appState.configLoaded) return;
@@ -2147,9 +1967,7 @@ async function loadAvailabilityForCurrentPartySize() {
   if (!appState.eventId) return;
   const partySize = Math.max(
     1,
-    appState.reservation
-      ? completedGuestCount(appState.reservation) || 1
-      : 1,
+    appState.reservation ? completedGuestCount(appState.reservation) || 1 : 1,
   );
   appState.availabilityLoading = true;
   appState.availabilityError = "";
@@ -2171,8 +1989,10 @@ async function loadAvailabilityForCurrentPartySize() {
 function applyAvailability(data) {
   appState.availability = data;
   appState.serviceDate = data.service_date || appState.serviceDate;
-  appState.slotIntervalMinutes = data.slot_interval_minutes || appState.slotIntervalMinutes;
-  appState.maxBookingMinutes = data.max_booking_minutes || appState.maxBookingMinutes;
+  appState.slotIntervalMinutes =
+    data.slot_interval_minutes || appState.slotIntervalMinutes;
+  appState.maxBookingMinutes =
+    data.max_booking_minutes || appState.maxBookingMinutes;
   appState.advanceClosed = Boolean(data.advance_closed);
   blockMap = {};
   const labels = [];
@@ -2191,9 +2011,10 @@ function applyAvailability(data) {
   });
   timeSlots = labels;
   if (appState.reservation) {
-    appState.reservation.selectedTimeSlots = appState.reservation.selectedTimeSlots.filter(
-      (s) => timeSlots.includes(s) && !isSlotUnavailable(s),
-    );
+    appState.reservation.selectedTimeSlots =
+      appState.reservation.selectedTimeSlots.filter(
+        (s) => timeSlots.includes(s) && !isSlotUnavailable(s),
+      );
   }
 }
 
