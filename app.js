@@ -190,10 +190,16 @@ const t = {
       phone: "올바른 연락처 형식을 입력해주세요. 예: 010-1234-5678",
       username: "ClubX Username을 입력해주세요.",
       oneGuest: "최소 1명 이상 입력해주세요.",
+      minParty: "예약은 최소 2명부터 가능합니다.",
       timeShort: "이용시간은 최소 1시간 이상 선택해야 합니다.",
       timeLong: "이용시간은 최대 1시간 30분까지 선택할 수 있습니다.",
       privacy: "개인정보 활용 동의가 필요합니다.",
     },
+    selfCancelButton: "예약 취소",
+    selfCancelConfirm: "정말 예약을 취소하시겠습니까?",
+    selfCancelSuccess: "예약이 취소되었습니다.",
+    selfCancelFail: "예약 취소에 실패했습니다.",
+    selfCancelAlreadyDone: "이미 취소된 예약입니다.",
     lookupTitle: "예약조회",
     lookupDesc:
       "비회원은 이름과 연락처로, ClubX 예약 인원은 ClubX Username으로 예약 내용을 확인할 수 있습니다.",
@@ -326,10 +332,16 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
       phone: "Please enter a valid phone number. Example: 010-1234-5678",
       username: "Please enter a ClubX Username.",
       oneGuest: "Please enter at least one guest.",
+      minParty: "Reservations require at least 2 guests.",
       timeShort: "Please select at least 1 hour.",
       timeLong: "Please select up to 1 hour 30 minutes.",
       privacy: "Privacy consent is required.",
     },
+    selfCancelButton: "Cancel Reservation",
+    selfCancelConfirm: "Are you sure you want to cancel this reservation?",
+    selfCancelSuccess: "Your reservation has been cancelled.",
+    selfCancelFail: "Failed to cancel the reservation.",
+    selfCancelAlreadyDone: "This reservation has already been cancelled.",
     lookupTitle: "Check Reservation",
     lookupDesc:
       "Non-ClubX guests can search by name and phone number. ClubX guests can search by ClubX Username.",
@@ -434,6 +446,14 @@ function formatPhone(value) {
   if (digits.length <= 3) return digits;
   if (digits.length <= 7) return `${digits.slice(0, 3)}-${digits.slice(3)}`;
   return `${digits.slice(0, 3)}-${digits.slice(3, 7)}-${digits.slice(7)}`;
+}
+
+// Display a phone value as-is when it's already masked (contains *).
+function displayPhone(value) {
+  if (!value) return "";
+  const str = String(value);
+  if (str.includes("*")) return str;
+  return formatPhone(str);
 }
 
 function normalizePhone(value) {
@@ -581,6 +601,7 @@ function validateReservation() {
 
   const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
+  else if (total < 2) errors.general = m.validation.minParty;
   const minSlots = getMinSlotCount();
   const maxSlots = getMaxSlotCount();
   if (r.selectedTimeSlots.length < minSlots) errors.time = m.validation.timeShort;
@@ -649,7 +670,7 @@ function summaryHtml(reservation) {
     ? reservation.guests
         .map(
           (g) =>
-            `<li>${escapeHtml(g.name || "")}${g.phone ? ` · ${escapeHtml(formatPhone(g.phone))}` : ""}</li>`,
+            `<li>${escapeHtml(g.name || "")}${g.phone ? ` · ${escapeHtml(displayPhone(g.phone))}` : ""}</li>`,
         )
         .join("")
     : `<li>${m.noGuests}</li>`;
@@ -1038,7 +1059,13 @@ function lookupPage() {
         </div>
         ${appState.lookupMessage ? `<p class="error">${appState.lookupMessage}</p>` : ""}
       </section>
-      ${result ? `<section class="panel">${summaryHtml(result)}</section>` : ""}
+      ${result ? `<section class="panel">${summaryHtml(result)}${
+        result.status === "submitted"
+          ? `<div class="form-actions" style="margin-top:16px"><button class="button red" data-cancel-reservation>${m.selfCancelButton}</button></div>`
+          : result.status === "cancelled"
+            ? `<p class="muted" style="margin-top:12px">${m.selfCancelAlreadyDone}</p>`
+            : ""
+      }</section>` : ""}
       <a class="button small" href="/" data-link>${m.backHome}</a>
     </div>
   `);
@@ -1369,6 +1396,7 @@ function bindLookupEvents() {
         const first = items[0];
         appState.lookupResult = {
           reservation_code: first.reservation_code,
+          status: first.status || "submitted",
           submittedAt: "",
           time_range_display: first.time_range
             ? `${first.time_range.start_label} - ${first.time_range.end_label}`
@@ -1384,6 +1412,8 @@ function bindLookupEvents() {
           total_party_size: first.total_party_size,
           selectedTimeSlots: [],
         };
+        appState.lookupUsedPhone = payload.type === "guest" ? payload.phone : "";
+        appState.lookupUsedUsername = payload.type === "clubx" ? payload.clubx_username : "";
       }
     } catch (err) {
       appState.lookupMessage = err.message || m.lookupFail;
@@ -1392,6 +1422,35 @@ function bindLookupEvents() {
       render();
     }
   });
+
+  document
+    .querySelector("[data-cancel-reservation]")
+    ?.addEventListener("click", async () => {
+      const m2 = messages();
+      const r = appState.lookupResult;
+      if (!r || !r.reservation_code) return;
+      if (!window.confirm(m2.selfCancelConfirm)) return;
+      const cancelPayload = { reservation_code: r.reservation_code };
+      if (appState.lookupUsedPhone) cancelPayload.phone = appState.lookupUsedPhone;
+      else if (appState.lookupUsedUsername)
+        cancelPayload.clubx_username = appState.lookupUsedUsername;
+      try {
+        const response = await apiPost(
+          "/public/pub-reservations/cancel",
+          cancelPayload,
+        );
+        if (response && response.ok) {
+          appState.lookupResult = { ...r, status: "cancelled" };
+          appState.lookupMessage = m2.selfCancelSuccess;
+        } else {
+          appState.lookupMessage = m2.selfCancelFail;
+        }
+      } catch (err) {
+        appState.lookupMessage = err.message || m2.selfCancelFail;
+      } finally {
+        render();
+      }
+    });
 }
 
 document.addEventListener("click", (event) => {
