@@ -86,8 +86,8 @@ const appState = {
   eventId: null,
   serviceDate: null,
   slotIntervalMinutes: 30,
-  minBookingMinutes: 60,
-  maxBookingMinutes: 90,
+  minBookingMinutes: 30,
+  maxBookingMinutes: 30,
   availability: null,
   availabilityLoading: false,
   availabilityError: "",
@@ -1524,7 +1524,10 @@ async function loadAvailabilityForCurrentPartySize() {
   appState.availabilityLoading = true;
   appState.availabilityError = "";
   appState.availabilityPartySize = partySize;
-  render();windows`,
+  render();
+  try {
+    const data = await apiGet(
+      `/public/pub-reservations/events/${encodeURIComponent(appState.eventId)}/windows?party_size=${partySize}`,
     );
     applyWindows(data);
   } catch (err) {
@@ -1572,15 +1575,26 @@ function applyWindows(data) {
 }
 
 function applyAvailability(data) {
-  // Backwards-compat shim — new contract uses applyWindows().
+  // Backwards-compat shim for the old 30-minute block contract.
   applyWindows({
     event_id: data && data.event_id,
     service_date: data && data.service_date,
-    windows: (data && data.blocks) || [],
-  }); appState.reservation.selectedTimeSlots = appState.reservation.selectedTimeSlots.filter(
-      (s) => timeSlots.includes(s) && !isSlotUnavailable(s),
-    );
-  }
+    windows: ((data && data.blocks) || []).map((block) => ({
+      id: block.block_id,
+      label: block.start_label || minuteToLabel(block.start_minute),
+      start_minute: block.start_minute,
+      end_minute: block.end_minute,
+      start_label: block.start_label || minuteToLabel(block.start_minute),
+      end_label: block.end_label || minuteToLabel(block.end_minute),
+      status: block.status === "available" ? "open" : block.status,
+      advance_tables_remaining: block.remaining_tables,
+      advance_table_quota: block.total_tables || block.remaining_tables || 0,
+      walkin_table_quota: 0,
+      walkin_waiting_count: 0,
+      current_called_number: null,
+      accepts_walkin: false,
+    })),
+  });
 }
 
 let partySizeRefreshTimer = null;
