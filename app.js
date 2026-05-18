@@ -86,8 +86,8 @@ const appState = {
   eventId: null,
   serviceDate: null,
   slotIntervalMinutes: 30,
-  minBookingMinutes: 30,
-  maxBookingMinutes: 30,
+  minBookingMinutes: 60,
+  maxBookingMinutes: 90,
   availability: null,
   availabilityLoading: false,
   availabilityError: "",
@@ -97,7 +97,7 @@ const appState = {
   lookupLoading: false,
 };
 
-// Time-window runtime state, populated from backend configuration.
+// 30-minute time-grid runtime state, populated from backend availability.
 let timeSlots = [];
 let blockMap = {}; // label -> { id, start_minute, end_minute, status, remaining_tables }
 
@@ -153,8 +153,8 @@ const t = {
     username: "ClubX Username",
     delete: "삭제",
     total: (n) => `총 인원: ${n}명`,
-    timeTitle: "예약 회차 선택",
-    timeHelp: "1회차부터 5회차 중 한 회차를 선택해주세요. 각 회차는 1시간 30분간 진행됩니다.",
+    timeTitle: "예약 시간 선택",
+    timeHelp: "30분 단위로 연속된 시간을 선택해주세요. 최소 1시간, 최대 1시간 30분까지 가능합니다.",
     advanceLabel: "사전예약",
     walkinAvailable: "현장 대기번호 발급 가능",
     soldOutBadge: "마감",
@@ -245,7 +245,7 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     completeRefreshHint:
       "예약 정보가 사라졌다면 예약조회 페이지에서 이름/연락처 또는 예약번호로 다시 조회해주세요.",
     configError: "예약 서비스 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
-    noWindows: "예약 가능한 회차가 아직 설정되지 않았습니다.",
+    noWindows: "예약 가능한 시간이 아직 설정되지 않았습니다.",
   },
   en: {
     brand: "KUBA Festival Pub",
@@ -287,9 +287,9 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
     username: "ClubX Username",
     delete: "Delete",
     total: (n) => `Total Guests: ${n}`,
-    timeTitle: "Select Reservation Round",
+    timeTitle: "Select Reservation Time",
     timeHelp:
-      "Pick one of the five 90-minute rounds.",
+      "Select continuous 30-minute slots. Reservations must be 1 hour to 1 hour 30 minutes.",
     advanceLabel: "Advance",
     walkinAvailable: "Walk-in waitlist available",
     soldOutBadge: "Sold out",
@@ -382,7 +382,7 @@ Collected personal information will not be used for purposes other than operatin
     completeRefreshHint:
       "If you don't see your reservation details, look them up on the lookup page using your name and phone or reservation code.",
     configError: "Failed to load reservation service settings. Please try again.",
-    noWindows: "Reservation rounds are not configured yet.",
+    noWindows: "Reservation time slots are not configured yet.",
   },
 };
 
@@ -515,7 +515,7 @@ function getMaxSlotCount() {
 function isSlotUnavailable(label) {
   const block = blockMap[label];
   if (!block) return false;
-  return block.status === "sold_out";
+  return block.status !== "available";
 }
 
 function getSavedReservations() {
@@ -585,6 +585,12 @@ function validateReservation() {
   const maxSlots = getMaxSlotCount();
   if (r.selectedTimeSlots.length < minSlots) errors.time = m.validation.timeShort;
   if (r.selectedTimeSlots.length > maxSlots) errors.time = m.validation.timeLong;
+  const selectedIndexes = r.selectedTimeSlots.map((slot) => timeSlots.indexOf(slot));
+  const hasGap = selectedIndexes.some(
+    (index, position) =>
+      index < 0 || (position > 0 && index !== selectedIndexes[position - 1] + 1),
+  );
+  if (r.selectedTimeSlots.length && hasGap) errors.time = m.validation.timeShort;
   if (!r.privacyConsent) errors.privacy = m.validation.privacy;
 
   r.errors = errors;
@@ -616,14 +622,15 @@ function buildReservationPayload() {
   const r = appState.reservation;
   const guests = completedGuests(r);
   const clubxGuests = completedClubXGuests(r);
-  const selectedLabel = r.selectedTimeSlots[0];
-  const window = blockMap[selectedLabel];
-  if (!window || !window.id) {
+  const first = blockMap[r.selectedTimeSlots[0]];
+  const last = blockMap[r.selectedTimeSlots[r.selectedTimeSlots.length - 1]];
+  if (!first || !last || isSlotUnavailable(r.selectedTimeSlots[0])) {
     throw new Error(messages().soldOut);
   }
   return {
     event_id: appState.eventId,
-    window_id: window.id,
+    start_minute: first.start_minute,
+    end_minute: last.end_minute,
     non_clubx_guests: guests.map((g) => ({
       name: g.name.trim(),
       phone: normalizePhone(g.phone),
@@ -968,26 +975,18 @@ function timeSlotGrid() {
   const selected = appState.reservation.selectedTimeSlots;
   return `
     <div class="time-grid-wrap">
-      <div class="window-grid" role="group" aria-label="${m.timeTitle}">
+      <div class="time-grid" role="group" aria-label="${m.timeTitle}">
         ${timeSlots
           .map((slot) => {
             const block = blockMap[slot] || {};
             const isUnavailable = isSlotUnavailable(slot);
             const remaining = typeof block.remaining_tables === "number" ? block.remaining_tables : null;
-            const total = block.advance_table_quota || 0;
-            const walkinAvailable = block.walkin_table_quota > 0;
             const isSelected = selected.includes(slot);
             return `
-          <button class="window-card ${isSelected ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${escapeHtml(slot)}" ${isUnavailable ? "disabled" : ""}>
-            <div class="window-card-header">
-              <span class="window-card-label">${escapeHtml(block.window_label || slot)}</span>
-              ${isUnavailable ? `<span class="window-card-status sold">${m.soldOutBadge || "마감"}</span>` : `<span class="window-card-status open">${m.openBadge || "예약 가능"}</span>`}
-            </div>
-            <div class="window-card-time">${escapeHtml(block.start_label || "")} - ${escapeHtml(block.end_label || "")}</div>
-            <div class="window-card-meta">
-              <span>${(m.advanceLabel || "사전예약")}: ${remaining !== null ? remaining : "?"} / ${total} 테이블</span>
-              ${walkinAvailable ? `<span class="window-card-walkin">${m.walkinAvailable || "현장 대기번호 발급 가능"}</span>` : ""}
-            </div>
+          <button class="slot-button ${isSelected ? "selected" : ""} ${isUnavailable ? "unavailable" : ""}" data-slot="${escapeHtml(slot)}" ${isUnavailable ? "disabled" : ""}>
+            <span class="slot-interval">${escapeHtml(block.start_label || slot)}<br>${escapeHtml(block.end_label || slotEndTime(slot))}</span>
+            <span class="slot-bar" aria-hidden="true"></span>
+            <span class="slot-remaining">${isUnavailable ? m.soldOutBadge : `${remaining !== null ? remaining : "?"}T`}</span>
           </button>
         `;
           })
@@ -1264,13 +1263,42 @@ function selectSlot(slot) {
   const r = appState.reservation;
   const clicked = timeSlots.indexOf(slot);
   if (clicked < 0) return;
-  // Single-window selection: tapping a card toggles that single window.
-  if (r.selectedTimeSlots.length === 1 && r.selectedTimeSlots[0] === slot) {
-    r.selectedTimeSlots = [];
-  } else {
+
+  const selectedIndexes = r.selectedTimeSlots
+    .map((selected) => timeSlots.indexOf(selected))
+    .filter((index) => index >= 0)
+    .sort((a, b) => a - b);
+  const maxSlots = getMaxSlotCount();
+
+  if (!selectedIndexes.length) {
     r.selectedTimeSlots = [slot];
+  } else if (selectedIndexes.includes(clicked)) {
+    const first = selectedIndexes[0];
+    const last = selectedIndexes[selectedIndexes.length - 1];
+    if (selectedIndexes.length === 1) {
+      r.selectedTimeSlots = [];
+    } else if (clicked === first) {
+      r.selectedTimeSlots = selectedIndexes.slice(1).map((index) => timeSlots[index]);
+    } else if (clicked === last) {
+      r.selectedTimeSlots = selectedIndexes.slice(0, -1).map((index) => timeSlots[index]);
+    } else {
+      r.selectedTimeSlots = [slot];
+    }
+  } else {
+    const first = selectedIndexes[0];
+    const last = selectedIndexes[selectedIndexes.length - 1];
+    const rangeStart = Math.min(first, clicked);
+    const rangeEnd = Math.max(last, clicked);
+    const proposed = timeSlots.slice(rangeStart, rangeEnd + 1);
+    const isContinuousExtension = clicked === first - 1 || clicked === last + 1;
+    const fitsMax = proposed.length <= maxSlots;
+    const hasUnavailable = proposed.some((candidate) => isSlotUnavailable(candidate));
+    if (isContinuousExtension && fitsMax && !hasUnavailable) {
+      r.selectedTimeSlots = proposed;
+    } else {
+      r.selectedTimeSlots = [slot];
+    }
   }
-  // Drop sold-out slots from selection silently
   r.selectedTimeSlots = r.selectedTimeSlots.filter((s) => !isSlotUnavailable(s));
   delete r.errors.time;
   refreshAvailabilityForPartySize();
@@ -1489,12 +1517,9 @@ async function bootstrapConfig() {
     const cfg = await apiGet("/public/pub-reservations/config");
     appState.eventId = cfg.event_id || null;
     appState.serviceDate = cfg.service_date || null;
-    appState.slotIntervalMinutes = 30;
-    appState.minBookingMinutes = 30;
-    appState.maxBookingMinutes = 30;
-    if (Array.isArray(cfg.windows) && cfg.windows.length) {
-      applyWindows({ event_id: cfg.event_id, service_date: cfg.service_date, windows: cfg.windows });
-    }
+    appState.slotIntervalMinutes = cfg.slot_interval_minutes || 30;
+    appState.minBookingMinutes = cfg.min_booking_minutes || 60;
+    appState.maxBookingMinutes = cfg.max_booking_minutes || 90;
     appState.configLoaded = true;
     appState.configError = "";
   } catch (err) {
@@ -1534,9 +1559,9 @@ async function loadAvailabilityForCurrentPartySize() {
   render();
   try {
     const data = await apiGet(
-      `/public/pub-reservations/events/${encodeURIComponent(appState.eventId)}/windows?party_size=${partySize}`,
+      `/public/pub-reservations/events/${encodeURIComponent(appState.eventId)}/availability?party_size=${partySize}`,
     );
-    applyWindows(data);
+    applyAvailability(data);
   } catch (err) {
     appState.availabilityError = err.message || messages().availabilityError;
   } finally {
@@ -1545,63 +1570,32 @@ async function loadAvailabilityForCurrentPartySize() {
   }
 }
 
-function applyWindows(data) {
+function applyAvailability(data) {
   appState.availability = data;
   appState.serviceDate = data.service_date || appState.serviceDate;
+  appState.slotIntervalMinutes = data.slot_interval_minutes || appState.slotIntervalMinutes;
+  appState.maxBookingMinutes = data.max_booking_minutes || appState.maxBookingMinutes;
   blockMap = {};
   const labels = [];
-  (data.windows || []).forEach((w) => {
-    // Each window is rendered as a single selectable card.
-    const label = `${w.label} ${w.start_label}-${w.end_label}`;
+  (data.blocks || []).forEach((block) => {
+    const label = block.start_label || minuteToLabel(block.start_minute);
     labels.push(label);
     blockMap[label] = {
-      id: w.id,
-      window_label: w.label,
-      start_minute: w.start_minute,
-      end_minute: w.end_minute,
-      start_label: w.start_label,
-      end_label: w.end_label,
-      status:
-        w.status === "open" && w.advance_tables_remaining > 0
-          ? "available"
-          : "sold_out",
-      remaining_tables: w.advance_tables_remaining,
-      advance_table_quota: w.advance_table_quota,
-      walkin_table_quota: w.walkin_table_quota,
-      walkin_waiting_count: w.walkin_waiting_count,
-      current_called_number: w.current_called_number,
-      accepts_walkin: w.accepts_walkin,
+      id: block.block_id,
+      start_minute: block.start_minute,
+      end_minute: block.end_minute,
+      start_label: block.start_label || minuteToLabel(block.start_minute),
+      end_label: block.end_label || minuteToLabel(block.end_minute),
+      status: block.status,
+      remaining_tables: block.remaining_tables,
     };
   });
-  if (labels.length) timeSlots = labels;
+  timeSlots = labels;
   if (appState.reservation) {
     appState.reservation.selectedTimeSlots = appState.reservation.selectedTimeSlots.filter(
       (s) => timeSlots.includes(s) && !isSlotUnavailable(s),
     );
   }
-}
-
-function applyAvailability(data) {
-  // Backwards-compat shim for the old 30-minute block contract.
-  applyWindows({
-    event_id: data && data.event_id,
-    service_date: data && data.service_date,
-    windows: ((data && data.blocks) || []).map((block) => ({
-      id: block.block_id,
-      label: block.start_label || minuteToLabel(block.start_minute),
-      start_minute: block.start_minute,
-      end_minute: block.end_minute,
-      start_label: block.start_label || minuteToLabel(block.start_minute),
-      end_label: block.end_label || minuteToLabel(block.end_minute),
-      status: block.status === "available" ? "open" : block.status,
-      advance_tables_remaining: block.remaining_tables,
-      advance_table_quota: block.total_tables || block.remaining_tables || 0,
-      walkin_table_quota: 0,
-      walkin_waiting_count: 0,
-      current_called_number: null,
-      accepts_walkin: false,
-    })),
-  });
 }
 
 let partySizeRefreshTimer = null;

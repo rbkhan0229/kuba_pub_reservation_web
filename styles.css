@@ -531,6 +531,13 @@ button:disabled {
   text-align: center;
 }
 
+.slot-remaining {
+  color: var(--muted);
+  font-size: 10px;
+  line-height: 1;
+  text-align: center;
+}
+
 .slot-bar {
   height: 30px;
   margin: 0;
@@ -555,6 +562,10 @@ button:disabled {
 }
 
 .slot-button.unavailable .slot-interval {
+  color: var(--muted);
+}
+
+.slot-button.unavailable .slot-remaining {
   color: var(--muted);
 }
 
