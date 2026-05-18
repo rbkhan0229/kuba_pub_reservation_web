@@ -453,7 +453,22 @@ button:disabled {
   color: var(--ink);
 }
 
+.field select {
+  width: 100%;
+  min-height: 46px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 0 12px;
+  color: var(--ink);
+}
+
 .field input:focus {
+  border-color: var(--ink);
+  outline: 3px solid rgba(151, 248, 33, 0.42);
+}
+
+.field select:focus {
   border-color: var(--ink);
   outline: 3px solid rgba(151, 248, 33, 0.42);
 }
@@ -926,4 +941,103 @@ button:disabled {
 }
 .waitlist-row strong {
   color: #111;
+}
+
+.reservation-mode-tabs {
+  display: inline-grid;
+  grid-auto-flow: column;
+  gap: 4px;
+  margin: 0 0 18px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #f7f7f7;
+}
+
+.reservation-mode-tab {
+  min-height: 42px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  padding: 0 16px;
+  font-weight: 900;
+}
+
+.reservation-mode-tab.active {
+  background: var(--ink);
+  color: #fff;
+}
+
+.lookup-tabs {
+  margin-top: 18px;
+}
+
+.advance-section-title {
+  margin: 18px 0 10px;
+  color: var(--ink);
+  font-size: 16px;
+}
+
+.advance-group-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.advance-option-card {
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  padding: 18px;
+  text-align: left;
+}
+
+.advance-option-card.selected {
+  border-color: var(--ink);
+  background: rgba(151, 248, 33, 0.18);
+  box-shadow: inset 0 0 0 2px var(--green);
+}
+
+.advance-option-card.unavailable {
+  background: #f3f3f3;
+  color: var(--muted);
+}
+
+.advance-option-time {
+  color: var(--ink);
+  font-size: 22px;
+  font-weight: 900;
+}
+
+.advance-option-remaining {
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.waitlist-result {
+  border-color: var(--green-dark);
+}
+
+.closed-notice {
+  border-color: var(--red);
+  background: #fff7f7;
+}
+
+.closed-notice h2 {
+  color: var(--red);
+}
+
+@media (max-width: 640px) {
+  .reservation-mode-tabs,
+  .advance-group-grid {
+    width: 100%;
+    grid-auto-flow: row;
+    grid-template-columns: 1fr;
+  }
 }

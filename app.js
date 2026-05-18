@@ -75,8 +75,13 @@ const appState = {
   lang: localStorage.getItem("kuba_lang") || "ko",
   route: normalizePath(window.location.pathname),
   reservation: null,
+  reservationMode: "advance",
+  waitlist: null,
   lookupResult: null,
+  lookupMode: "advance",
+  waitlistLookupResult: null,
   lookupMessage: "",
+  waitlistLookupMessage: "",
   modalOpen: false,
   androidNotice: "",
   submitted: null,
@@ -95,6 +100,10 @@ const appState = {
   submitting: false,
   submitError: "",
   lookupLoading: false,
+  waitlistSubmitting: false,
+  waitlistSubmitError: "",
+  waitlistLookupLoading: false,
+  advanceClosed: false,
 };
 
 // 30-minute time-grid runtime state, populated from backend availability.
@@ -110,6 +119,16 @@ const emptyClubXGuest = () => ({
   searchError: "",
   selectedUser: null,
   searchToken: 0,
+});
+
+const emptyWaitlist = () => ({
+  name: "",
+  phone: "",
+  partySize: "2",
+  preferredRange: "",
+  privacyConsent: false,
+  errors: {},
+  result: null,
 });
 
 const t = {
@@ -252,6 +271,48 @@ KUBA 대동제 주점 예약 운영을 위해 아래와 같이 개인정보를 �
       "예약 정보가 사라졌다면 예약조회 페이지에서 이름/연락처 또는 예약번호로 다시 조회해주세요.",
     configError: "예약 서비스 설정을 불러오지 못했습니다. 잠시 후 다시 시도해주세요.",
     noWindows: "예약 가능한 시간이 아직 설정되지 않았습니다.",
+    advanceTab: "사전예약",
+    walkinTab: "현장대기",
+    groupedAdvanceTitle: "빠른 사전예약 시간",
+    flexibleAdvanceTitle: "21:00 이후 30분 단위 선택",
+    remainingAdvance: (n) => `남은 사전예약: ${n}테이블`,
+    advanceClosedTitle: "사전예약이 마감되었습니다.",
+    advanceClosedBody: "현장대기를 이용해주세요.",
+    waitlistName: "이름",
+    waitlistPhone: "전화번호",
+    waitlistPartySize: "인원 수",
+    waitlistPreferredTime: "선호 시간대",
+    waitlistNoPreference: "선호 시간 없음",
+    waitlistNotGuaranteed:
+      "현장대기는 입장을 보장하지 않습니다. 현장 상황과 회전 속도에 따라 입장이 어려울 수 있습니다.",
+    waitlistPrivacyAgree: "현장대기 운영을 위한 개인정보 활용에 동의합니다.",
+    waitlistSubmit: "대기번호 발급하기",
+    waitlistSubmitting: "대기번호 발급 중...",
+    waitlistSubmitError: "대기번호 발급에 실패했습니다.",
+    waitlistCompleteTitle: "대기번호가 발급되었습니다.",
+    waitlistCode: "대기 코드",
+    waitlistQueueNumber: "대기번호",
+    waitlistStatus: "상태",
+    waitlistPreferredTimeLabel: "선호 시간",
+    lookupAdvanceTab: "사전예약 조회",
+    lookupWalkinTab: "현장대기 조회",
+    lookupLoadingLabel: "조회 중...",
+    waitlistLookupLoadingLabel: "대기번호 조회 중...",
+    waitlistLookupCodeOrPhone: "대기 코드 또는 전화번호를 입력해주세요.",
+    waitlistLookupCode: "대기 코드",
+    waitlistLookupPhone: "전화번호",
+    waitlistLookupName: "이름 (선택)",
+    checkWaitlist: "현장대기 조회하기",
+    statusLabels: {
+      submitted: "예약 접수",
+      checked_in: "입장 완료",
+      cancelled: "취소됨",
+      waiting: "대기 중",
+      called: "호출됨",
+      seated: "착석",
+      no_show: "노쇼",
+      left: "퇴장",
+    },
   },
   en: {
     brand: "KUBA Festival Pub",
@@ -395,6 +456,49 @@ Collected personal information will not be used for purposes other than operatin
       "If you don't see your reservation details, look them up on the lookup page using your name and phone or reservation code.",
     configError: "Failed to load reservation service settings. Please try again.",
     noWindows: "Reservation time slots are not configured yet.",
+    advanceTab: "Advance Reservation",
+    walkinTab: "Walk-in Waitlist",
+    groupedAdvanceTitle: "Quick advance reservation times",
+    flexibleAdvanceTitle: "30-minute selection after 21:00",
+    remainingAdvance: (n) => `Advance remaining: ${n} tables`,
+    advanceClosedTitle: "Advance reservation is closed.",
+    advanceClosedBody: "Please use the walk-in waitlist.",
+    waitlistName: "Name",
+    waitlistPhone: "Phone Number",
+    waitlistPartySize: "Party Size",
+    waitlistPreferredTime: "Preferred Time",
+    waitlistNoPreference: "No preference",
+    waitlistNotGuaranteed:
+      "Walk-in waitlist does not guarantee entry. Entry may not be possible depending on on-site conditions and table turnover.",
+    waitlistPrivacyAgree:
+      "I agree to the use of my personal information for walk-in waitlist operation.",
+    waitlistSubmit: "Issue Waitlist Number",
+    waitlistSubmitting: "Issuing waitlist number...",
+    waitlistSubmitError: "Failed to issue a waitlist number.",
+    waitlistCompleteTitle: "Your waitlist number has been issued.",
+    waitlistCode: "Waitlist Code",
+    waitlistQueueNumber: "Queue Number",
+    waitlistStatus: "Status",
+    waitlistPreferredTimeLabel: "Preferred Time",
+    lookupAdvanceTab: "Advance Reservation Lookup",
+    lookupWalkinTab: "Walk-in Waitlist Lookup",
+    lookupLoadingLabel: "Looking up...",
+    waitlistLookupLoadingLabel: "Checking waitlist...",
+    waitlistLookupCodeOrPhone: "Enter a waitlist code or phone number.",
+    waitlistLookupCode: "Waitlist Code",
+    waitlistLookupPhone: "Phone Number",
+    waitlistLookupName: "Name (optional)",
+    checkWaitlist: "Check Waitlist",
+    statusLabels: {
+      submitted: "Submitted",
+      checked_in: "Checked in",
+      cancelled: "Cancelled",
+      waiting: "Waiting",
+      called: "Called",
+      seated: "Seated",
+      no_show: "No-show",
+      left: "Left",
+    },
   },
 };
 
@@ -415,6 +519,10 @@ function initReservation() {
   };
 }
 
+function initWaitlist() {
+  appState.waitlist = emptyWaitlist();
+}
+
 function copy(obj) {
   return JSON.parse(JSON.stringify(obj));
 }
@@ -429,7 +537,10 @@ function navigate(path) {
     history.pushState({}, "", normalizedPath);
   }
   appState.route = normalizedPath;
-  if (normalizedPath === "/guest-reservation" && !appState.reservation) initReservation();
+  if (normalizedPath === "/guest-reservation") {
+    if (!appState.reservation) initReservation();
+    if (!appState.waitlist) initWaitlist();
+  }
   window.scrollTo({ top: 0, behavior: "smooth" });
   render();
 }
@@ -581,6 +692,94 @@ function minuteToLabel(totalMinutes) {
   return `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`;
 }
 
+const ADVANCE_GROUPS = [
+  { id: "early", label: "18:00 - 19:30", start: 1080, end: 1170 },
+  { id: "prime", label: "19:30 - 21:00", start: 1170, end: 1260 },
+];
+
+function blocksInRange(startMinute, endMinute) {
+  return timeSlots
+    .map((slot) => blockMap[slot])
+    .filter(
+      (block) =>
+        block &&
+        block.start_minute >= startMinute &&
+        block.end_minute <= endMinute,
+    )
+    .sort((a, b) => a.start_minute - b.start_minute);
+}
+
+function slotsInRange(startMinute, endMinute) {
+  return blocksInRange(startMinute, endMinute).map(
+    (block) => block.start_label || minuteToLabel(block.start_minute),
+  );
+}
+
+function rangeRemaining(startMinute, endMinute) {
+  const blocks = blocksInRange(startMinute, endMinute);
+  const expected = (endMinute - startMinute) / getSlotInterval();
+  if (blocks.length !== expected) return 0;
+  if (blocks.some((block) => block.status !== "available")) return 0;
+  return Math.min(
+    ...blocks.map((block) =>
+      typeof block.remaining_tables === "number" ? block.remaining_tables : 0,
+    ),
+  );
+}
+
+function isAdvanceClosed() {
+  return Boolean(
+    appState.advanceClosed ||
+      (appState.availability && appState.availability.advance_closed),
+  );
+}
+
+function selectedRangeMatches(startMinute, endMinute) {
+  const r = appState.reservation;
+  if (!r || !r.selectedTimeSlots.length) return false;
+  const first = blockMap[r.selectedTimeSlots[0]];
+  const last = blockMap[r.selectedTimeSlots[r.selectedTimeSlots.length - 1]];
+  return Boolean(
+    first &&
+      last &&
+      first.start_minute === startMinute &&
+      last.end_minute === endMinute,
+  );
+}
+
+function preferredTimeOptions() {
+  const options = [...ADVANCE_GROUPS];
+  const starts = blocksInRange(1260, 2880).map((block) => block.start_minute);
+  starts.forEach((start) => {
+    [60, 90].forEach((duration) => {
+      const end = start + duration;
+      const blocks = blocksInRange(start, end);
+      const expected = duration / getSlotInterval();
+      if (blocks.length === expected) {
+        options.push({
+          id: `${start}-${end}`,
+          label: `${minuteToLabel(start)} - ${minuteToLabel(end)}`,
+          start,
+          end,
+        });
+      }
+    });
+  });
+  const seen = new Set();
+  return options.filter((option) => {
+    const key = `${option.start}-${option.end}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+function parseRangeValue(value) {
+  const match = String(value || "").match(/^(\d+)-(\d+)$/);
+  if (!match) return null;
+  return { start: Number(match[1]), end: Number(match[2]) };
+}
+
 function validateReservation() {
   const m = messages();
   const r = appState.reservation;
@@ -602,6 +801,7 @@ function validateReservation() {
   const total = completedGuestCount(r);
   if (total < 1) errors.general = m.validation.oneGuest;
   else if (total < 2) errors.general = m.validation.minParty;
+  if (isAdvanceClosed()) errors.time = m.advanceClosedTitle;
   const minSlots = getMinSlotCount();
   const maxSlots = getMaxSlotCount();
   if (r.selectedTimeSlots.length < minSlots) errors.time = m.validation.timeShort;
@@ -708,6 +908,34 @@ function summaryHtml(reservation) {
   `;
 }
 
+function statusLabel(status) {
+  const labels = messages().statusLabels || {};
+  return labels[status] || status || "—";
+}
+
+function waitlistResultHtml(result) {
+  const m = messages();
+  const preferred = result.preferred_time_range
+    ? `${result.preferred_time_range.start_label} - ${result.preferred_time_range.end_label}`
+    : m.waitlistNoPreference;
+  return `
+    <div class="waitlist-summary">
+      <div>
+        <span class="section-label">${m.waitlistCompleteTitle}</span>
+        <div class="waitlist-big-number">#${escapeHtml(result.queue_number || "—")}</div>
+      </div>
+      <div class="waitlist-row"><span>${m.waitlistCode}</span><strong>${escapeHtml(result.waiting_code || "—")}</strong></div>
+      <div class="waitlist-row"><span>${m.waitlistQueueNumber}</span><strong>${escapeHtml(result.queue_number || "—")}</strong></div>
+      <div class="waitlist-row"><span>${m.waitlistCurrentCalled}</span><strong>${escapeHtml(result.current_called_number ?? "—")}</strong></div>
+      <div class="waitlist-row"><span>${m.waitlistRemaining}</span><strong>${escapeHtml(result.remaining_before_me ?? "—")}</strong></div>
+      <div class="waitlist-row"><span>${m.waitlistStatus}</span><strong>${escapeHtml(statusLabel(result.status))}</strong></div>
+      <div class="waitlist-row"><span>${m.waitlistPreferredTimeLabel}</span><strong>${escapeHtml(preferred)}</strong></div>
+      ${result.contact_phone_masked ? `<div class="waitlist-row"><span>${m.phone}</span><strong>${escapeHtml(displayPhone(result.contact_phone_masked))}</strong></div>` : ""}
+      ${result.message ? `<p class="muted">${escapeHtml(result.message)}</p>` : ""}
+    </div>
+  `;
+}
+
 function escapeHtml(value) {
   return String(value).replace(
     /[&<>"']/g,
@@ -796,8 +1024,19 @@ function clubxPage() {
   `);
 }
 
+function reservationModeTabs() {
+  const m = messages();
+  return `
+    <div class="reservation-mode-tabs" role="tablist" aria-label="Reservation mode">
+      <button class="reservation-mode-tab ${appState.reservationMode === "advance" ? "active" : ""}" data-reservation-mode="advance" type="button">${m.advanceTab}</button>
+      <button class="reservation-mode-tab ${appState.reservationMode === "walkin" ? "active" : ""}" data-reservation-mode="walkin" type="button">${m.walkinTab}</button>
+    </div>
+  `;
+}
+
 function guestReservationPage() {
   if (!appState.reservation) initReservation();
+  if (!appState.waitlist) initWaitlist();
   const m = messages();
   const r = appState.reservation;
   const totalGuestCount = completedGuestCount(r);
@@ -815,8 +1054,32 @@ function guestReservationPage() {
         <h1 class="page-title">${m.guestTitle}</h1>
         <p class="muted">${m.guestGuide}</p>
       </div>
-      <div class="total-pill" data-total-count>${m.total(totalGuestCount)}</div>
+      ${appState.reservationMode === "advance" ? `<div class="total-pill" data-total-count>${m.total(totalGuestCount)}</div>` : ""}
     </div>
+    ${reservationModeTabs()}
+    ${
+      appState.reservationMode === "walkin"
+        ? waitlistFormHtml()
+        : advanceReservationHtml(finalDraft)
+    }
+  `);
+}
+
+function advanceReservationHtml(finalDraft) {
+  const m = messages();
+  const r = appState.reservation;
+  if (isAdvanceClosed()) {
+    return `
+      <div class="content-grid">
+        <section class="panel closed-notice">
+          <h2>${m.advanceClosedTitle}</h2>
+          <p>${m.advanceClosedBody}</p>
+          <button class="button primary small" data-reservation-mode="walkin" type="button">${m.walkinTab}</button>
+        </section>
+      </div>
+    `;
+  }
+  return `
     <div class="content-grid">
       <section class="panel">
         <div class="section-head">
@@ -872,7 +1135,59 @@ function guestReservationPage() {
       ${appState.submitError ? `<p class="error">${escapeHtml(appState.submitError)}</p>` : ""}
     </div>
     ${appState.modalOpen ? confirmModal(finalDraft) : ""}
-  `);
+  `;
+}
+
+function waitlistFormHtml() {
+  const m = messages();
+  const w = appState.waitlist || emptyWaitlist();
+  const result = w.result;
+  const options = preferredTimeOptions();
+  return `
+    <div class="content-grid">
+      <section class="panel">
+        <h2>${m.walkinTitle}</h2>
+        <p class="muted">${m.waitlistNotGuaranteed}</p>
+        <div class="form-grid" style="margin-top:18px">
+          ${waitlistField("waitlist-name", m.waitlistName, w.name, "waitlist-name")}
+          ${waitlistField("waitlist-phone", m.waitlistPhone, w.phone, "waitlist-phone")}
+          ${waitlistField("waitlist-party", m.waitlistPartySize, w.partySize, "waitlist-party", "number", "2")}
+          <div class="field">
+            <label for="waitlist-preferred">${m.waitlistPreferredTime}</label>
+            <select id="waitlist-preferred" data-waitlist-preferred>
+              <option value="">${m.waitlistNoPreference}</option>
+              ${options.map((option) => `<option value="${option.start}-${option.end}" ${w.preferredRange === `${option.start}-${option.end}` ? "selected" : ""}>${escapeHtml(option.label)}</option>`).join("")}
+            </select>
+          </div>
+        </div>
+        ${w.errors.general ? `<p class="error">${w.errors.general}</p>` : ""}
+      </section>
+
+      <section class="panel">
+        <div class="form-actions" style="justify-content:flex-start;margin-top:0">
+          <a class="button small" href="/privacy-terms" data-link>${m.privacyView}</a>
+        </div>
+        <label class="checkbox-row" style="margin-top:16px">
+          <input type="checkbox" data-waitlist-privacy ${w.privacyConsent ? "checked" : ""}>
+          <span>${m.waitlistPrivacyAgree}</span>
+        </label>
+        ${w.errors.privacy ? `<p class="error">${w.errors.privacy}</p>` : ""}
+      </section>
+
+      <button class="button red" data-waitlist-submit ${appState.waitlistSubmitting ? "disabled" : ""}>${appState.waitlistSubmitting ? m.waitlistSubmitting : m.waitlistSubmit}</button>
+      ${appState.waitlistSubmitError ? `<p class="error">${escapeHtml(appState.waitlistSubmitError)}</p>` : ""}
+      ${result ? `<section class="panel waitlist-result">${waitlistResultHtml(result)}</section>` : ""}
+    </div>
+  `;
+}
+
+function waitlistField(id, label, value, data, type = "text", min = "") {
+  return `
+    <div class="field">
+      <label for="${id}">${label}</label>
+      <input id="${id}" type="${type}" ${min ? `min="${min}"` : ""} value="${escapeHtml(value)}" data-${data}>
+    </div>
+  `;
 }
 
 function reservationCompletePage() {
@@ -994,10 +1309,29 @@ function timeSlotGrid() {
     return `<div class="time-grid-wrap"><p class="muted">${m.noWindows}</p></div>`;
   }
   const selected = appState.reservation.selectedTimeSlots;
+  const flexibleSlots = timeSlots.filter((slot) => {
+    const block = blockMap[slot];
+    return block && block.start_minute >= 1260;
+  });
   return `
     <div class="time-grid-wrap">
+      <h3 class="advance-section-title">${m.groupedAdvanceTitle}</h3>
+      <div class="advance-group-grid">
+        ${ADVANCE_GROUPS.map((group) => {
+          const remaining = rangeRemaining(group.start, group.end);
+          const unavailable = remaining <= 0;
+          const selectedGroup = selectedRangeMatches(group.start, group.end);
+          return `
+            <button class="advance-option-card ${selectedGroup ? "selected" : ""} ${unavailable ? "unavailable" : ""}" data-advance-group="${group.id}" ${unavailable ? "disabled" : ""} type="button">
+              <span class="advance-option-time">${escapeHtml(group.label)}</span>
+              <span class="advance-option-remaining">${unavailable ? m.soldOutBadge : m.remainingAdvance(remaining)}</span>
+            </button>
+          `;
+        }).join("")}
+      </div>
+      <h3 class="advance-section-title">${m.flexibleAdvanceTitle}</h3>
       <div class="time-grid" role="group" aria-label="${m.timeTitle}">
-        ${timeSlots
+        ${flexibleSlots
           .map((slot) => {
             const block = blockMap[slot] || {};
             const isUnavailable = isSlotUnavailable(slot);
@@ -1042,33 +1376,63 @@ function lookupPage() {
         <span class="section-label">Lookup</span>
         <h1 class="page-title">${m.lookupTitle}</h1>
         <p class="muted">${m.lookupDesc}</p>
-        <div class="lookup-form">
-          <div class="lookup-section">
-            <h2>${m.lookupGuestGroup}</h2>
-            <div class="form-grid lookup-guest-grid">
-              ${fieldPlain("lookup-name", m.name, appState.lookupName || "", "lookup-name")}
-              ${fieldPlain("lookup-phone", m.phone, appState.lookupPhone || "", "lookup-phone")}
-            </div>
-          </div>
-          <div class="lookup-divider"><span>${m.lookupOr}</span></div>
-          <div class="lookup-section">
-            <h2>${m.lookupClubxGroup}</h2>
-            ${fieldPlain("lookup-username", m.lookupUsername, appState.lookupUsername || "", "lookup-username")}
-          </div>
-          <button class="button primary" data-lookup>${m.checkReservation}</button>
+        <div class="reservation-mode-tabs lookup-tabs" role="tablist" aria-label="Lookup mode">
+          <button class="reservation-mode-tab ${appState.lookupMode === "advance" ? "active" : ""}" data-lookup-mode="advance" type="button">${m.lookupAdvanceTab}</button>
+          <button class="reservation-mode-tab ${appState.lookupMode === "walkin" ? "active" : ""}" data-lookup-mode="walkin" type="button">${m.lookupWalkinTab}</button>
         </div>
-        ${appState.lookupMessage ? `<p class="error">${appState.lookupMessage}</p>` : ""}
+        ${appState.lookupMode === "walkin" ? waitlistLookupFormHtml() : advanceLookupFormHtml()}
       </section>
-      ${result ? `<section class="panel">${summaryHtml(result)}${
+      ${appState.lookupMode === "advance" && result ? `<section class="panel">${summaryHtml(result)}${
         result.status === "submitted"
           ? `<div class="form-actions" style="margin-top:16px"><button class="button red" data-cancel-reservation>${m.selfCancelButton}</button></div>`
           : result.status === "cancelled"
             ? `<p class="muted" style="margin-top:12px">${m.selfCancelAlreadyDone}</p>`
             : ""
       }</section>` : ""}
+      ${appState.lookupMode === "walkin" && appState.waitlistLookupResult ? `<section class="panel waitlist-result">${waitlistResultHtml(appState.waitlistLookupResult)}</section>` : ""}
       <a class="button small" href="/" data-link>${m.backHome}</a>
     </div>
   `);
+}
+
+function advanceLookupFormHtml() {
+  const m = messages();
+  return `
+    <div class="lookup-form">
+      <div class="lookup-section">
+        <h2>${m.lookupGuestGroup}</h2>
+        <div class="form-grid lookup-guest-grid">
+          ${fieldPlain("lookup-name", m.name, appState.lookupName || "", "lookup-name")}
+          ${fieldPlain("lookup-phone", m.phone, appState.lookupPhone || "", "lookup-phone")}
+        </div>
+      </div>
+      <div class="lookup-divider"><span>${m.lookupOr}</span></div>
+      <div class="lookup-section">
+        <h2>${m.lookupClubxGroup}</h2>
+        ${fieldPlain("lookup-username", m.lookupUsername, appState.lookupUsername || "", "lookup-username")}
+      </div>
+      <button class="button primary" data-lookup>${appState.lookupLoading ? m.lookupLoadingLabel : m.checkReservation}</button>
+    </div>
+    ${appState.lookupMessage ? `<p class="error">${appState.lookupMessage}</p>` : ""}
+  `;
+}
+
+function waitlistLookupFormHtml() {
+  const m = messages();
+  return `
+    <div class="lookup-form">
+      <div class="lookup-section">
+        <h2>${m.lookupWalkinTab}</h2>
+        <div class="form-grid lookup-guest-grid">
+          ${fieldPlain("waitlist-lookup-code", m.waitlistLookupCode, appState.waitlistLookupCode || "", "waitlist-lookup-code")}
+          ${fieldPlain("waitlist-lookup-phone", m.waitlistLookupPhone, appState.waitlistLookupPhone || "", "waitlist-lookup-phone")}
+          ${fieldPlain("waitlist-lookup-name", m.waitlistLookupName, appState.waitlistLookupName || "", "waitlist-lookup-name")}
+        </div>
+      </div>
+      <button class="button primary" data-waitlist-lookup>${appState.waitlistLookupLoading ? m.waitlistLookupLoadingLabel : m.checkWaitlist}</button>
+    </div>
+    ${appState.waitlistLookupMessage ? `<p class="error">${appState.waitlistLookupMessage}</p>` : ""}
+  `;
 }
 
 function fieldPlain(id, label, value, data) {
@@ -1134,11 +1498,27 @@ function bindEvents() {
   });
 
   if (appState.route === "/guest-reservation") {
-    bindReservationEvents();
-    bindClubXSearchEvents();
+    bindReservationModeEvents();
+    if (appState.reservationMode === "walkin") {
+      bindWaitlistEvents();
+    } else {
+      bindReservationEvents();
+      bindClubXSearchEvents();
+    }
     ensureAvailabilityLoaded();
   }
   if (appState.route === "/reservation-lookup") bindLookupEvents();
+}
+
+function bindReservationModeEvents() {
+  document.querySelectorAll("[data-reservation-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.reservationMode = button.dataset.reservationMode || "advance";
+      appState.submitError = "";
+      appState.waitlistSubmitError = "";
+      render();
+    });
+  });
 }
 
 function bindReservationEvents() {
@@ -1209,6 +1589,12 @@ function bindReservationEvents() {
 
   document.querySelectorAll("[data-slot]").forEach((button) => {
     button.addEventListener("click", () => selectSlot(button.dataset.slot));
+  });
+
+  document.querySelectorAll("[data-advance-group]").forEach((button) => {
+    button.addEventListener("click", () =>
+      selectAdvanceGroup(button.dataset.advanceGroup),
+    );
   });
 
   document.querySelector("[data-submit]")?.addEventListener("click", () => {
@@ -1285,6 +1671,82 @@ function bindReservationEvents() {
   });
 }
 
+function validateWaitlist() {
+  const m = messages();
+  const w = appState.waitlist;
+  const errors = {};
+  if (!validateName(w.name || "")) errors.general = m.validation.name;
+  if (!validatePhone(w.phone || "")) errors.general = m.validation.phone;
+  const partySize = Number(w.partySize || 0);
+  if (!partySize || partySize < 2) errors.general = m.validation.minParty;
+  if (!w.privacyConsent) errors.privacy = m.validation.privacy;
+  w.errors = errors;
+  return Object.keys(errors).length === 0;
+}
+
+function bindWaitlistEvents() {
+  const w = appState.waitlist;
+  document.querySelector("[data-waitlist-name]")?.addEventListener("input", (event) => {
+    w.name = event.target.value;
+    delete w.errors.general;
+  });
+  document.querySelector("[data-waitlist-phone]")?.addEventListener("input", (event) => {
+    event.target.value = formatPhone(event.target.value);
+    w.phone = event.target.value;
+    delete w.errors.general;
+  });
+  document.querySelector("[data-waitlist-party]")?.addEventListener("input", (event) => {
+    w.partySize = event.target.value;
+    delete w.errors.general;
+  });
+  document.querySelector("[data-waitlist-preferred]")?.addEventListener("change", (event) => {
+    w.preferredRange = event.target.value;
+  });
+  document
+    .querySelector("[data-waitlist-privacy]")
+    ?.addEventListener("change", (event) => {
+      w.privacyConsent = event.target.checked;
+      delete w.errors.privacy;
+      render();
+    });
+  document.querySelector("[data-waitlist-submit]")?.addEventListener("click", async () => {
+    if (!validateWaitlist()) {
+      render();
+      return;
+    }
+    if (!appState.eventId) {
+      appState.waitlistSubmitError = messages().configError;
+      render();
+      return;
+    }
+    const range = parseRangeValue(w.preferredRange);
+    const payload = {
+      event_id: appState.eventId,
+      name: w.name.trim(),
+      phone: normalizePhone(w.phone),
+      party_size: Number(w.partySize),
+      privacy_consent: true,
+      locale: appState.lang,
+    };
+    if (range) {
+      payload.preferred_start_minute = range.start;
+      payload.preferred_end_minute = range.end;
+    }
+    appState.waitlistSubmitting = true;
+    appState.waitlistSubmitError = "";
+    render();
+    try {
+      const created = await apiPost("/public/pub-reservations/waitlist", payload);
+      appState.waitlist.result = created;
+    } catch (err) {
+      appState.waitlistSubmitError = err.message || messages().waitlistSubmitError;
+    } finally {
+      appState.waitlistSubmitting = false;
+      render();
+    }
+  });
+}
+
 function selectSlot(slot) {
   if (isSlotUnavailable(slot)) return;
   const r = appState.reservation;
@@ -1332,7 +1794,28 @@ function selectSlot(slot) {
   render();
 }
 
+function selectAdvanceGroup(groupId) {
+  const group = ADVANCE_GROUPS.find((item) => item.id === groupId);
+  if (!group || rangeRemaining(group.start, group.end) <= 0) return;
+  const r = appState.reservation;
+  const slots = slotsInRange(group.start, group.end);
+  if (!slots.length || slots.some((slot) => isSlotUnavailable(slot))) return;
+  r.selectedTimeSlots = slots;
+  delete r.errors.time;
+  refreshAvailabilityForPartySize();
+  render();
+}
+
 function bindLookupEvents() {
+  document.querySelectorAll("[data-lookup-mode]").forEach((button) => {
+    button.addEventListener("click", () => {
+      appState.lookupMode = button.dataset.lookupMode || "advance";
+      appState.lookupMessage = "";
+      appState.waitlistLookupMessage = "";
+      render();
+    });
+  });
+
   const nameInput = document.querySelector("[data-lookup-name]");
   const phoneInput = document.querySelector("[data-lookup-phone]");
   const usernameInput = document.querySelector("[data-lookup-username]");
@@ -1346,6 +1829,58 @@ function bindLookupEvents() {
   usernameInput?.addEventListener("input", (event) => {
     appState.lookupUsername = event.target.value;
   });
+
+  document.querySelector("[data-waitlist-lookup-code]")?.addEventListener("input", (event) => {
+    appState.waitlistLookupCode = event.target.value;
+  });
+  document.querySelector("[data-waitlist-lookup-phone]")?.addEventListener("input", (event) => {
+    event.target.value = formatPhone(event.target.value);
+    appState.waitlistLookupPhone = event.target.value;
+  });
+  document.querySelector("[data-waitlist-lookup-name]")?.addEventListener("input", (event) => {
+    appState.waitlistLookupName = event.target.value;
+  });
+
+  document.querySelector("[data-waitlist-lookup]")?.addEventListener("click", async () => {
+    const m = messages();
+    const waitingCode = (appState.waitlistLookupCode || "").trim();
+    const phone = formatPhone(appState.waitlistLookupPhone || "");
+    const name = (appState.waitlistLookupName || "").trim();
+    appState.waitlistLookupResult = null;
+    appState.waitlistLookupMessage = "";
+    const payload = {};
+    if (waitingCode) {
+      payload.waiting_code = waitingCode;
+    } else if (phone) {
+      if (!validatePhone(phone)) {
+        appState.waitlistLookupMessage = m.validation.phone;
+        render();
+        return;
+      }
+      payload.phone = normalizePhone(phone);
+      if (name) payload.name = name;
+    } else {
+      appState.waitlistLookupMessage = m.waitlistLookupCodeOrPhone;
+      render();
+      return;
+    }
+    appState.waitlistLookupLoading = true;
+    render();
+    try {
+      const response = await apiPost("/public/pub-reservations/waitlist/lookup", payload);
+      if (!response.found || !response.waitlist) {
+        appState.waitlistLookupMessage = m.waitlistLookupFail;
+      } else {
+        appState.waitlistLookupResult = response.waitlist;
+      }
+    } catch (err) {
+      appState.waitlistLookupMessage = err.message || m.waitlistLookupFail;
+    } finally {
+      appState.waitlistLookupLoading = false;
+      render();
+    }
+  });
+
   document.querySelector("[data-lookup]")?.addEventListener("click", async () => {
     const m = messages();
     const name = (appState.lookupName || "").trim();
@@ -1467,7 +2002,10 @@ window.addEventListener("popstate", () => {
 });
 
 document.documentElement.lang = appState.lang;
-if (appState.route === "/guest-reservation") initReservation();
+if (appState.route === "/guest-reservation") {
+  initReservation();
+  initWaitlist();
+}
 
 // ---- ClubX user search & backend bootstrap ----
 
@@ -1579,6 +2117,7 @@ async function bootstrapConfig() {
     appState.slotIntervalMinutes = cfg.slot_interval_minutes || 30;
     appState.minBookingMinutes = cfg.min_booking_minutes || 60;
     appState.maxBookingMinutes = cfg.max_booking_minutes || 90;
+    appState.advanceClosed = Boolean(cfg.advance_closed);
     appState.configLoaded = true;
     appState.configError = "";
   } catch (err) {
@@ -1634,6 +2173,7 @@ function applyAvailability(data) {
   appState.serviceDate = data.service_date || appState.serviceDate;
   appState.slotIntervalMinutes = data.slot_interval_minutes || appState.slotIntervalMinutes;
   appState.maxBookingMinutes = data.max_booking_minutes || appState.maxBookingMinutes;
+  appState.advanceClosed = Boolean(data.advance_closed);
   blockMap = {};
   const labels = [];
   (data.blocks || []).forEach((block) => {
